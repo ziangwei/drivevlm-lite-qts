@@ -17,6 +17,26 @@ Create the environment:
 conda env create -f environment.yml
 conda activate drivevlm-lite
 python -m pip install -e ".[dev]"
+hf version
+python scripts/00_check_env.py
+```
+
+If the classic conda solver stalls at `Solving environment`, try the libmamba
+solver if it is available:
+
+```bash
+conda env create --solver=libmamba -f environment.yml
+```
+
+If that still stalls, create the environment in two explicit steps:
+
+```bash
+conda create -n drivevlm-lite python=3.10 pip setuptools wheel \
+  pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 \
+  -c pytorch -c nvidia
+conda activate drivevlm-lite
+python -m pip install -e ".[dev]"
+hf version
 python scripts/00_check_env.py
 ```
 
@@ -26,7 +46,7 @@ If your cluster uses CUDA modules and the available module is CUDA 12.2, that is
 module load cuda/12.2
 ```
 
-The conda file still uses `pytorch-cuda=12.1` on purpose. PyTorch does not usually publish a separate conda selector for every CUDA minor version, and CUDA 12.1 runtime packages work on a CUDA 12.2-capable driver. The project pins `transformers>=4.57.0` because Qwen3-VL requires recent Transformers support. The base model config uses SDPA by default because it is reliable.
+The conda file still uses `pytorch-cuda=12.1` on purpose. PyTorch does not usually publish a separate conda selector for every CUDA minor version, and CUDA 12.1 runtime packages work on a CUDA 12.2-capable driver. The PyTorch stack is pinned to `pytorch==2.5.1`, `torchvision==0.20.1`, and `torchaudio==2.5.1` to avoid long dependency solving. The rest of the project dependencies are installed with `python -m pip install -e ".[dev]"` from `pyproject.toml`. The project pins `transformers>=4.57.0` because Qwen3-VL requires recent Transformers support. The base model config uses SDPA by default because it is reliable.
 
 If the server has a newer driver and you prefer the newer PyTorch CUDA build, use the official PyTorch selector and switch to `pytorch-cuda=12.4` only after confirming it installs cleanly on the cluster. Do not use an unofficial CUDA 12.2 PyTorch package for this project.
 

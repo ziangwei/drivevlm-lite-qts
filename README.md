@@ -44,6 +44,7 @@ Large local folders such as `data/`, `models/`, `outputs/`, `reports/`, and `che
 
 See [docs/DEVELOPMENT_FLOW.md](docs/DEVELOPMENT_FLOW.md) for the full workflow.
 See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for the conda environment.
+See [docs/SERVER_SETUP.md](docs/SERVER_SETUP.md) for server sync, cache paths, and asset download commands.
 
 ## Quick Start
 
