@@ -24,8 +24,21 @@ python -m pip install \
 Install the project dependencies:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements-e0.txt -c constraints-torch-cu121.txt
+python -m pip install -e . --no-deps
 python scripts/00_check_env.py
+```
+
+Do not use `python -m pip install -e ".[dev]"` on the server. It asks pip to
+resolve dependencies from `pyproject.toml` and can replace the CUDA PyTorch
+wheel. Use `--no-deps` for the editable project install.
+
+Later milestones add their own requirements:
+
+```bash
+python -m pip install -r requirements-train.txt -c constraints-torch-cu121.txt
+python -m pip install -r requirements-report.txt -c constraints-torch-cu121.txt
+python -m pip install -r requirements-demo.txt -c constraints-torch-cu121.txt
 ```
 
 If a broken environment already exists:
@@ -65,13 +78,17 @@ python scripts/00_check_env.py
 Expected on the H100 server:
 
 ```text
+E0 required packages:
 torch: ok
 transformers: ok
-trl: ok
-peft: ok
 datasets: ok
-accelerate: ok
-gradio: ok
+huggingface_hub: ok
+pillow: ok
+pyyaml: ok
+qwen-vl-utils: ok
 cuda available: True
 gpu: NVIDIA H100 ...
 ```
+
+It is fine if `accelerate`, `trl`, `peft`, `bitsandbytes`, `gradio`, and
+`wandb` are missing before the corresponding later milestone.

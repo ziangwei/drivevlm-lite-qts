@@ -243,15 +243,15 @@ After pushing the new repo:
 ```bash
 git clone https://github.com/<your-username>/drivevlm-lite-qts.git
 cd drivevlm-lite-qts
-export HF_HOME=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/huggingface_cache
-mkdir -p "$HF_HOME" data models outputs
+mkdir -p data models outputs
 conda create -n drivevlm-lite python=3.10 pip -y
 conda activate drivevlm-lite
 python -m pip install -U pip
 python -m pip install \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
   --index-url https://download.pytorch.org/whl/cu121
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements-e0.txt -c constraints-torch-cu121.txt
+python -m pip install -e . --no-deps
 python scripts/00_check_env.py
 ```
 

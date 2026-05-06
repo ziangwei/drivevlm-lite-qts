@@ -11,8 +11,8 @@ Use it for SFT because it is small enough to manage while still covering percept
 Expected storage:
 
 - Compressed / original package: about 4.86 GB according to public mirrors and dataset cards.
-- Unpacked plus generated JSONL/cache: reserve 10-20 GB.
-- Processed training subset cache: reserve another 10-30 GB.
+- Unpacked plus generated JSONL files: reserve 10-20 GB.
+- Processed training subsets: reserve another 10-30 GB.
 
 Recommended first subsets:
 
@@ -61,11 +61,11 @@ Recommended: 300 GB
 
 Why 300 GB:
 
-- Qwen3-VL-4B cache: 15-25 GB.
+- Qwen3-VL-4B model files: 15-25 GB.
 - DriveLM: 10-50 GB after processing.
 - DriveBench: 15-40 GB.
 - Checkpoints and experiment outputs: 20-50 GB.
-- Temporary caches and resized images: 30-80 GB.
+- Temporary files and resized images: 30-80 GB.
 
 ## Directory Layout
 

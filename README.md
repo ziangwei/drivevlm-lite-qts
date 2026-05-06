@@ -44,7 +44,7 @@ Large local folders such as `data/`, `models/`, `outputs/`, `reports/`, and `che
 
 See [docs/DEVELOPMENT_FLOW.md](docs/DEVELOPMENT_FLOW.md) for the full workflow.
 See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for the conda environment.
-See [docs/SERVER_SETUP.md](docs/SERVER_SETUP.md) for server sync, cache paths, and asset download commands.
+See [docs/SERVER_SETUP.md](docs/SERVER_SETUP.md) for server sync and asset download commands.
 
 ## Quick Start
 
@@ -52,7 +52,9 @@ See [docs/SERVER_SETUP.md](docs/SERVER_SETUP.md) for server sync, cache paths, a
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-python -m pip install -e ".[dev]"
+python -m pip install torch torchvision torchaudio
+python -m pip install -r requirements-dev.txt -c constraints-torch-cu121.txt
+python -m pip install -e . --no-deps
 python scripts/00_check_env.py
 ```
 
@@ -67,6 +69,15 @@ python -m pip install -U pip
 python -m pip install \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
   --index-url https://download.pytorch.org/whl/cu121
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements-e0.txt -c constraints-torch-cu121.txt
+python -m pip install -e . --no-deps
 python scripts/00_check_env.py
+```
+
+Install later-stage packages only when needed:
+
+```bash
+python -m pip install -r requirements-train.txt -c constraints-torch-cu121.txt
+python -m pip install -r requirements-report.txt -c constraints-torch-cu121.txt
+python -m pip install -r requirements-demo.txt -c constraints-torch-cu121.txt
 ```

@@ -1,0 +1,7 @@
+# Packages needed after E0, for LoRA SFT / QLoRA training.
+-r requirements-e0.txt
+accelerate>=1.0.0
+bitsandbytes>=0.45.0
+peft>=0.13.0
+trl>=0.12.0
+wandb>=0.17.0

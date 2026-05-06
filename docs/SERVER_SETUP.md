@@ -40,8 +40,26 @@ python -m pip install \
 Install project dependencies:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements-e0.txt -c constraints-torch-cu121.txt
+python -m pip install -e . --no-deps
 python scripts/00_check_env.py
+```
+
+Do not run `python -m pip install -e ".[dev]"` on the server. That lets pip
+resolve dependencies from `pyproject.toml` and can replace the CUDA PyTorch
+wheel. The `--no-deps` install only registers this repo's source code.
+
+Install extra packages only when that milestone starts:
+
+```bash
+# LoRA SFT / QLoRA
+python -m pip install -r requirements-train.txt -c constraints-torch-cu121.txt
+
+# Plotting and report tables
+python -m pip install -r requirements-report.txt -c constraints-torch-cu121.txt
+
+# Gradio demo
+python -m pip install -r requirements-demo.txt -c constraints-torch-cu121.txt
 ```
 
 If a broken env already exists:
@@ -50,16 +68,25 @@ If a broken env already exists:
 conda env remove -n drivevlm-lite
 ```
 
-## 3. Hugging Face Cache
-
-Use one cache export:
+If PyTorch was accidentally replaced, reinstall the CUDA wheel:
 
 ```bash
-export HF_HOME=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/huggingface_cache
-mkdir -p "$HF_HOME" data models outputs
+python -m pip install --force-reinstall \
+  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+  --index-url https://download.pytorch.org/whl/cu121
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
 ```
 
-Set this before running `hf download` or Python code that imports Hugging Face libraries.
+## 3. Local Folders
+
+Create local project folders:
+
+```bash
+mkdir -p data models outputs
+```
+
+The downloaded model and dataset files go to the `--local-dir` paths in this
+project folder.
 
 ## 4. Hugging Face Login
 

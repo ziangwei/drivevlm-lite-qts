@@ -10,8 +10,31 @@ def exists(module: str) -> bool:
 
 def main() -> None:
     print(f"Python: {platform.python_version()}")
-    for module in ["torch", "transformers", "trl", "peft", "datasets", "accelerate", "gradio"]:
-        print(f"{module}: {'ok' if exists(module) else 'missing'}")
+    required = [
+        ("torch", "torch"),
+        ("transformers", "transformers"),
+        ("datasets", "datasets"),
+        ("huggingface_hub", "huggingface_hub"),
+        ("PIL", "pillow"),
+        ("yaml", "pyyaml"),
+        ("qwen_vl_utils", "qwen-vl-utils"),
+    ]
+    optional = [
+        ("accelerate", "accelerate"),
+        ("trl", "trl"),
+        ("peft", "peft"),
+        ("bitsandbytes", "bitsandbytes"),
+        ("gradio", "gradio"),
+        ("wandb", "wandb"),
+    ]
+
+    print("E0 required packages:")
+    for module, package in required:
+        print(f"{package}: {'ok' if exists(module) else 'missing'}")
+
+    print("Later-stage optional packages:")
+    for module, package in optional:
+        print(f"{package}: {'ok' if exists(module) else 'missing'}")
 
     if exists("torch"):
         import torch
