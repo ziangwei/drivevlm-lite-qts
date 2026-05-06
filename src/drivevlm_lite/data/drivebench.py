@@ -22,6 +22,8 @@ def _images_from_record(record: dict[str, Any], root: Path) -> list[Path]:
     out: list[Path] = []
     for value in values:
         path = Path(value)
+        if not path.is_absolute() and path.parts[:1] == ("data",):
+            path = Path(*path.parts[1:])
         out.append(path if path.is_absolute() else root / path)
     return out
 

@@ -78,7 +78,8 @@ data/
       samples/
   drivebench/
     text/
-    images/
+    nuscenes/
+      samples/
     corruption/
   processed/
     drivelm_sft_train.jsonl

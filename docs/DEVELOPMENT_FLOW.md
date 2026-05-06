@@ -78,7 +78,7 @@ data/
     nuscenes/samples/
   drivebench/
     text/
-    images/
+    nuscenes/samples/
     corruption/
 ```
 

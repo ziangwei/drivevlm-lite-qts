@@ -191,7 +191,8 @@ Organize downloaded assets as:
 ```text
 data/drivebench/
   text/
-  images/
+  nuscenes/
+    samples/
   corruption/
 ```
 
@@ -217,7 +218,7 @@ Build eval JSONL:
 python scripts/02_prepare_drivebench.py \
   --root data/drivebench \
   --json data/drivebench/text/drivebench-test.json \
-  --image-root data/drivebench/images \
+  --image-root data/drivebench \
   --out data/processed/drivebench_eval.jsonl
 ```
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import sys
 from pathlib import Path
 
@@ -25,8 +24,7 @@ def main() -> None:
         json_path = fallback if fallback.exists() else json_path
 
     samples = list(iter_drivebench_json(json_path, args.image_root))
-    rows = [dataclasses.asdict(sample) for sample in samples]
-    count = write_jsonl(args.out, rows)
+    count = write_jsonl(args.out, samples)
     print(f"Wrote DriveBench eval rows: {count} -> {args.out}")
 
 

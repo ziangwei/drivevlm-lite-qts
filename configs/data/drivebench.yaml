@@ -1,7 +1,7 @@
 name: drivebench
 root: data/drivebench
 text_root: data/drivebench/text
-image_root: data/drivebench/images
+image_root: data/drivebench
 corruption_root: data/drivebench/corruption
 
 splits:
