@@ -332,6 +332,14 @@ Full training dependencies were not installed locally. That should happen on the
 5. Keep model weights, datasets, checkpoints, reports, and outputs out of Git.
 6. Treat `DriveVLM-Lite_agent_prompt.md` as a rough brainstorm, not as binding scope.
 
+## Current Server Data Note
+
+DriveBench text JSON files and `data/drivebench_images.zip` have been downloaded,
+but the DriveBench image zip is intentionally not fully extracted yet because the
+server project quota is nearly full. Continue E0 with DriveLM validation samples
+first. Keep the DriveBench zip for later reliability evaluation after space is
+available or after older artifacts are cleaned.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
