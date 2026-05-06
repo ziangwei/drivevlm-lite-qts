@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from drivevlm_lite.data.drivebench import iter_drivebench_json
 from drivevlm_lite.data.jsonl import write_jsonl

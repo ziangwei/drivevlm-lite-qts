@@ -73,7 +73,7 @@ Why 300 GB:
 data/
   drivelm/
     QA_dataset_nus/
-      v1_0_train_nus.json
+      v1_1_train_nus.json
     nuscenes/
       samples/
   drivebench/

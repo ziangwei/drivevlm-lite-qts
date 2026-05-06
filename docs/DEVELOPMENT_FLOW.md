@@ -74,7 +74,7 @@ Expected local layout on the server:
 ```text
 data/
   drivelm/
-    QA_dataset_nus/v1_0_train_nus.json
+    QA_dataset_nus/v1_1_train_nus.json
     nuscenes/samples/
   drivebench/
     text/
@@ -86,7 +86,7 @@ Prepare DriveLM:
 
 ```bash
 python scripts/01_prepare_drivelm.py \
-  --qa-file data/drivelm/QA_dataset_nus/v1_0_train_nus.json \
+  --qa-file data/drivelm/QA_dataset_nus/v1_1_train_nus.json \
   --image-root data/drivelm/nuscenes/samples \
   --out-dir data/processed \
   --train-samples 10000 \

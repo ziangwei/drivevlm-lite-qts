@@ -133,16 +133,31 @@ Then organize the DriveLM-nuScenes files into:
 ```text
 data/drivelm/
   QA_dataset_nus/
-    v1_0_train_nus.json
+    v1_1_train_nus.json
   nuscenes/
     samples/
+```
+
+The HF download currently provides `v1_1_train_nus.json` and image zip files
+such as `drivelm_nus_imgs_train.zip`. Unzip the image archives, then point
+`data/drivelm/nuscenes/samples` at the extracted `samples` folder.
+
+```bash
+mkdir -p data/drivelm/QA_dataset_nus data/drivelm/nuscenes
+ln -sf "$(realpath data/drivelm_raw/v1_1_train_nus.json)" \
+  data/drivelm/QA_dataset_nus/v1_1_train_nus.json
+
+unzip -q data/drivelm_raw/drivelm_nus_imgs_train.zip -d data/drivelm
+unzip -q data/drivelm_raw/drivelm_nus_imgs_val.zip -d data/drivelm
+
+find data/drivelm/nuscenes -type d -name samples
 ```
 
 Prepare a first small split:
 
 ```bash
 python scripts/01_prepare_drivelm.py \
-  --qa-file data/drivelm/QA_dataset_nus/v1_0_train_nus.json \
+  --qa-file data/drivelm/QA_dataset_nus/v1_1_train_nus.json \
   --image-root data/drivelm/nuscenes/samples \
   --out-dir data/processed \
   --train-samples 1000 \

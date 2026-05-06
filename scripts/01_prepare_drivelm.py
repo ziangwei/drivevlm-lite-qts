@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import random
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from drivevlm_lite.data.drivelm import iter_drivelm_samples
 from drivevlm_lite.data.jsonl import write_jsonl
