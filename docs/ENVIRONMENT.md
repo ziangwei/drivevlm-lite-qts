@@ -1,85 +1,60 @@
 # Conda Environment
 
-Use one main server environment for training and evaluation. Keep the local laptop environment separate and lighter.
+Use one server environment for training and evaluation. Keep the local laptop
+environment separate and lighter.
 
-## Server Training Environment
+## Server Environment
 
-Target hardware:
+Create a plain Python environment first:
 
-- Linux server.
-- 1x H100 80GB preferred.
-- CUDA 12.2 driver/module is acceptable.
-- BF16 training.
+```bash
+conda create -n drivevlm-lite python=3.10 pip -y
+conda activate drivevlm-lite
+```
 
-Create the environment:
+Install PyTorch with CUDA support:
+
+```bash
+conda install -y pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+```
+
+Install the project dependencies:
+
+```bash
+python -m pip install -U pip
+python -m pip install -e ".[dev]"
+python scripts/00_check_env.py
+```
+
+If a broken environment already exists:
+
+```bash
+conda env remove -n drivevlm-lite
+```
+
+The `environment.yml` file is intentionally minimal. It only creates a Python
+3.10 + pip environment:
 
 ```bash
 conda env create -f environment.yml
-conda activate drivevlm-lite
-python -m pip install -e ".[dev]"
-hf version
-python scripts/00_check_env.py
 ```
 
-If the classic conda solver stalls at `Solving environment`, try the libmamba
-solver if it is available:
+For server work, the explicit commands above are preferred because failures are
+easier to diagnose.
 
-```bash
-conda env create --solver=libmamba -f environment.yml
-```
+## CUDA Note
 
-If that still stalls, create the environment in two explicit steps:
+If the cluster has a CUDA 12.2 module or driver, using `pytorch-cuda=12.1` is
+still acceptable. PyTorch publishes conda runtime packages for common CUDA
+targets such as 12.1 and 12.4, not every minor CUDA module version.
 
-```bash
-conda create -n drivevlm-lite python=3.10 pip setuptools wheel \
-  pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 \
-  -c pytorch -c nvidia
-conda activate drivevlm-lite
-python -m pip install -e ".[dev]"
-hf version
-python scripts/00_check_env.py
-```
-
-If your cluster uses CUDA modules and the available module is CUDA 12.2, that is fine:
-
-```bash
-module load cuda/12.2
-```
-
-The conda file still uses `pytorch-cuda=12.1` on purpose. PyTorch does not usually publish a separate conda selector for every CUDA minor version, and CUDA 12.1 runtime packages work on a CUDA 12.2-capable driver. The PyTorch stack is pinned to `pytorch==2.5.1`, `torchvision==0.20.1`, and `torchaudio==2.5.1` to avoid long dependency solving. The rest of the project dependencies are installed with `python -m pip install -e ".[dev]"` from `pyproject.toml`. The project pins `transformers>=4.57.0` because Qwen3-VL requires recent Transformers support. The base model config uses SDPA by default because it is reliable.
-
-If the server has a newer driver and you prefer the newer PyTorch CUDA build, use the official PyTorch selector and switch to `pytorch-cuda=12.4` only after confirming it installs cleanly on the cluster. Do not use an unofficial CUDA 12.2 PyTorch package for this project.
-
-Optional H100 speedup:
+Use SDPA first. Install FlashAttention only after the baseline pipeline works:
 
 ```bash
 python -m pip install flash-attn --no-build-isolation
 ```
 
-Only install `flash-attn` after PyTorch is installed and importable. If it fails to build because the cluster CUDA module and PyTorch CUDA runtime do not match exactly, keep using SDPA and continue.
-
-## Why Python 3.10
-
-Python 3.10 is the safest choice for CUDA ML stacks. It avoids edge-case incompatibilities that still appear with newer Python versions in training libraries, quantization packages, and compiled extensions.
-
-## Package Roles
-
-| Package | Role |
-|---|---|
-| `torch`, `torchvision`, `pytorch-cuda` | CUDA training/runtime |
-| `transformers` | Qwen3-VL loading and generation |
-| `trl` | SFT / later DPO trainer |
-| `peft` | LoRA adapters |
-| `accelerate` | single/multi-GPU launch |
-| `bitsandbytes` | QLoRA / low-memory experiments |
-| `qwen-vl-utils[decord]` | Qwen-VL image/video preprocessing helpers |
-| `datasets` | JSONL and HF dataset loading |
-| `gradio` | demo |
-| `matplotlib`, `seaborn`, `scikit-learn` | reports and metrics |
-
-## Expected Checks
-
-After activating the environment:
+## Expected Check
 
 ```bash
 python scripts/00_check_env.py
@@ -99,17 +74,3 @@ cuda available: True
 gpu: NVIDIA H100 ...
 ```
 
-## Local Demo Environment
-
-The RTX 5070 8GB laptop should not be used for training. Use it only for a small Gradio demo.
-
-For local demo, prefer an INT4/AWQ/GGUF deployment path after the server model is ready. Do not solve local quantized deployment before the server baseline and LoRA SFT are complete.
-
-Minimum local needs:
-
-- Python 3.10.
-- Gradio.
-- A quantized model runtime.
-- A few demo images.
-
-Keep full training data and checkpoints on the server.

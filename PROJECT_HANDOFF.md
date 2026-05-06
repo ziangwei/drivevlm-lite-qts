@@ -162,6 +162,7 @@ docs/PROJECT_SPEC.md
 docs/DATASETS.md
 docs/DEVELOPMENT_FLOW.md
 docs/ENVIRONMENT.md
+docs/SERVER_SETUP.md
 ```
 
 Configs:
@@ -238,8 +239,12 @@ After pushing the new repo:
 ```bash
 git clone https://github.com/<your-username>/drivevlm-lite-qts.git
 cd drivevlm-lite-qts
-conda env create -f environment.yml
+export HF_HOME=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/huggingface_cache
+mkdir -p "$HF_HOME" data models outputs
+conda create -n drivevlm-lite python=3.10 pip -y
 conda activate drivevlm-lite
+conda install -y pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+python -m pip install -U pip
 python -m pip install -e ".[dev]"
 python scripts/00_check_env.py
 ```

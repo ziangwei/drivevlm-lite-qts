@@ -56,13 +56,15 @@ python -m pip install -e ".[dev]"
 python scripts/00_check_env.py
 ```
 
-On the server, prefer a conda or uv environment with CUDA-compatible PyTorch installed first, then install this project in editable mode.
+On the server, create a plain conda environment first, then install PyTorch and project dependencies explicitly.
 
 Server conda setup:
 
 ```bash
-conda env create -f environment.yml
+conda create -n drivevlm-lite python=3.10 pip -y
 conda activate drivevlm-lite
+conda install -y pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+python -m pip install -U pip
 python -m pip install -e ".[dev]"
 python scripts/00_check_env.py
 ```
