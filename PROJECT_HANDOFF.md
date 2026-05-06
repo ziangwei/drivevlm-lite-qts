@@ -121,17 +121,21 @@ qwen-vl-utils
 
 Do not use LLaMA-Factory.
 
-## CUDA / Conda Decision
+## CUDA / Environment Decision
 
 The server CUDA module was reported as CUDA 12.2.
 
-The conda environment keeps:
+Create the conda environment with only Python 3.10 and pip. Install PyTorch
+with the official CUDA 12.1 pip wheel:
 
-```text
-pytorch-cuda=12.1
+```bash
+python -m pip install \
+  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+  --index-url https://download.pytorch.org/whl/cu121
 ```
 
-This is intentional. PyTorch usually publishes conda runtime packages for common CUDA targets such as 12.1 / 12.4 rather than every minor CUDA module. CUDA 12.1 runtime packages should run on a CUDA 12.2-capable driver/module.
+This avoids conda solving the PyTorch dependency stack. The CUDA 12.1 wheel
+should run on a CUDA 12.2-capable driver/module.
 
 Default attention should be SDPA first. FlashAttention is optional and should only be installed after the baseline pipeline works.
 
@@ -243,8 +247,10 @@ export HF_HOME=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/huggingface_cache
 mkdir -p "$HF_HOME" data models outputs
 conda create -n drivevlm-lite python=3.10 pip -y
 conda activate drivevlm-lite
-conda install -y pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
 python -m pip install -U pip
+python -m pip install \
+  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+  --index-url https://download.pytorch.org/whl/cu121
 python -m pip install -e ".[dev]"
 python scripts/00_check_env.py
 ```

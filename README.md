@@ -63,8 +63,10 @@ Server conda setup:
 ```bash
 conda create -n drivevlm-lite python=3.10 pip -y
 conda activate drivevlm-lite
-conda install -y pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
 python -m pip install -U pip
+python -m pip install \
+  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+  --index-url https://download.pytorch.org/whl/cu121
 python -m pip install -e ".[dev]"
 python scripts/00_check_env.py
 ```

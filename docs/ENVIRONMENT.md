@@ -12,16 +12,18 @@ conda create -n drivevlm-lite python=3.10 pip -y
 conda activate drivevlm-lite
 ```
 
-Install PyTorch with CUDA support:
+Install PyTorch with CUDA support using pip, not conda:
 
 ```bash
-conda install -y pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+python -m pip install -U pip
+python -m pip install \
+  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+  --index-url https://download.pytorch.org/whl/cu121
 ```
 
 Install the project dependencies:
 
 ```bash
-python -m pip install -U pip
 python -m pip install -e ".[dev]"
 python scripts/00_check_env.py
 ```
@@ -44,9 +46,9 @@ easier to diagnose.
 
 ## CUDA Note
 
-If the cluster has a CUDA 12.2 module or driver, using `pytorch-cuda=12.1` is
-still acceptable. PyTorch publishes conda runtime packages for common CUDA
-targets such as 12.1 and 12.4, not every minor CUDA module version.
+If the cluster has a CUDA 12.2 module or driver, using the PyTorch `cu121` wheel
+is still acceptable. PyTorch publishes wheels for common CUDA runtime targets
+such as 12.1 and 12.4, not every minor CUDA module version.
 
 Use SDPA first. Install FlashAttention only after the baseline pipeline works:
 
@@ -73,4 +75,3 @@ gradio: ok
 cuda available: True
 gpu: NVIDIA H100 ...
 ```
-

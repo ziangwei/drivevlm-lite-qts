@@ -28,16 +28,18 @@ conda create -n drivevlm-lite python=3.10 pip -y
 conda activate drivevlm-lite
 ```
 
-Install the CUDA PyTorch stack:
+Install the CUDA PyTorch stack with pip, not conda:
 
 ```bash
-conda install -y pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+python -m pip install -U pip
+python -m pip install \
+  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+  --index-url https://download.pytorch.org/whl/cu121
 ```
 
 Install project dependencies:
 
 ```bash
-python -m pip install -U pip
 python -m pip install -e ".[dev]"
 python scripts/00_check_env.py
 ```
@@ -186,4 +188,3 @@ python scripts/02_prepare_drivebench.py \
 5. E4: Small Gradio demo.
 
 Do not start QTS before E0 and E1 are working.
-
