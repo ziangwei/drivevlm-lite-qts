@@ -1,0 +1,21 @@
+name: drivebench
+root: data/drivebench
+text_root: data/drivebench/text
+image_root: data/drivebench/images
+corruption_root: data/drivebench/corruption
+
+splits:
+  clean: drivebench-test.json
+  corruptions:
+    - biterror.json
+    - bright.json
+    - camcrash.json
+    - colorquant.json
+    - fog.json
+    - framelost.json
+    - lowlight.json
+    - motion.json
+    - rain.json
+    - snow.json
+    - water.json
+    - zoom.json

@@ -1,19 +1,19 @@
 # Runtime data and downloaded assets
-data/
-models/
-cache/
-hf_cache/
-outputs/
-reports/
-results/
-runs/
-logs/
-checkpoints/
-wandb/
+/data/
+/models/
+/cache/
+/hf_cache/
+/outputs/
+/reports/
+/results/
+/runs/
+/logs/
+/checkpoints/
+/wandb/
 
 # Archived prototype folders should not be committed if recreated locally.
-oldversion/
-.git_old*/
+/oldversion/
+/.git_old*/
 
 # Python
 __pycache__/

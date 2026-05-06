@@ -1,0 +1,16 @@
+name: drivelm_nuscenes
+root: data/drivelm
+qa_file: data/drivelm/QA_dataset_nus/v1_1_train_nus.json
+image_root: data/drivelm/nuscenes/samples
+
+# First-run subsets. Increase only after baseline and eval are stable.
+debug_samples: 100
+train_samples: 10000
+val_samples: 1000
+seed: 2026
+
+tasks:
+  - perception
+  - prediction
+  - planning
+  - behavior
