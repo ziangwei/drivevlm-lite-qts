@@ -1,0 +1,31 @@
+model_config: configs/model/qwen3_vl_4b.yaml
+train_file: data/processed/drivelm_sft_train.jsonl
+eval_file: data/processed/drivelm_sft_val.jsonl
+output_dir: checkpoints/qwen3vl4b_lora_sft
+
+use_lora: true
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+
+num_train_epochs: 1
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+learning_rate: 0.0001
+warmup_ratio: 0.03
+bf16: true
+gradient_checkpointing: true
+logging_steps: 10
+save_steps: 500
+eval_steps: 500
+
+# For VLM SFT, keep max_length disabled unless the collator explicitly protects image tokens.
+max_length: null

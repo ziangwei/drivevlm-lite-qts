@@ -1,0 +1,12 @@
+base_train_config: configs/train/lora_sft.yaml
+output_dir: checkpoints/qwen3vl4b_qts_lite
+
+qts:
+  enabled: true
+  keep_ratio: 0.25
+  cross_attn_heads: 4
+  gamma: 0.5
+  train_selector: true
+  freeze_vision_encoder: true
+  freeze_base_llm: true
+  train_lora: true

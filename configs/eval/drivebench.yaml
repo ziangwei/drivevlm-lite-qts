@@ -1,0 +1,17 @@
+model_config: configs/model/qwen3_vl_4b.yaml
+data_config: configs/data/drivebench.yaml
+prediction_dir: outputs/drivebench
+report_dir: reports/drivebench
+
+max_samples_per_split: 0
+batch_size: 1
+generation:
+  max_new_tokens: 256
+  do_sample: false
+
+metrics:
+  - exact_match
+  - normalized_accuracy
+  - answer_type_accuracy
+  - visual_dependency_gap
+  - latency
