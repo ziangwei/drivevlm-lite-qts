@@ -13,6 +13,7 @@
 
 # Local interview/dev reflection notes
 /PROJECT_INTERVIEW_LOG.md
+/CLAUDE_PROJECT_REVIEW.md
 
 # Archived prototype folders should not be committed if recreated locally.
 /oldversion/

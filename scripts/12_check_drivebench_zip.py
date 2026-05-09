@@ -14,7 +14,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--image-zip", required=True, type=Path)
+    parser.add_argument("--zip-condition", default=None)
     parser.add_argument("--limit", default=20, type=int)
+    parser.add_argument("--show-prefixes", action="store_true")
     args = parser.parse_args()
 
     rows = read_jsonl(args.input)
@@ -23,14 +25,27 @@ def main() -> None:
 
     checked = 0
     missing: list[str] = []
-    with ImageLoader(args.image_zip) as loader:
+    with ImageLoader(args.image_zip, zip_condition=args.zip_condition) as loader:
+        if args.show_prefixes:
+            print("zip_prefixes:")
+            for prefix, count in loader.top_prefixes(depth=2, limit=50):
+                print(f"  {prefix}: {count}")
         for row in rows:
             for path in row.get("images", []):
                 checked += 1
                 try:
                     loader.resolve(path)
-                except FileNotFoundError:
+                except FileNotFoundError as exc:
                     missing.append(str(path))
+                    if len(missing) <= 5:
+                        candidates = loader.candidates(path)
+                        if candidates:
+                            print(f"CANDIDATES for {path}:")
+                            for candidate in candidates[:20]:
+                                print(f"  {candidate}")
+                        else:
+                            print(f"NO_CANDIDATES for {path}")
+                        print(f"ERROR {exc}")
 
     print(f"checked_rows={len(rows)}")
     print(f"checked_images={checked}")

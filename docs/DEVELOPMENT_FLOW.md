@@ -192,6 +192,7 @@ wc -l data/processed/drivebench_eval_clean.jsonl
 python scripts/12_check_drivebench_zip.py \
   --input data/processed/drivebench_eval_clean.jsonl \
   --image-zip data/drivebench_images.zip \
+  --show-prefixes \
   --limit 20
 
 RUN_NAME=e3_drivebench_clean_lora_100 \

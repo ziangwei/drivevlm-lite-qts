@@ -554,6 +554,7 @@ wc -l data/processed/drivebench_eval_clean.jsonl
 python scripts/12_check_drivebench_zip.py \
   --input data/processed/drivebench_eval_clean.jsonl \
   --image-zip data/drivebench_images.zip \
+  --show-prefixes \
   --limit 20
 
 RUN_NAME=e3_drivebench_clean_lora_100 \
@@ -566,6 +567,20 @@ bash scripts/run_eval_drivebench_zip.sh
 
 The `wc -l` output should be at least `100` for the first check run. Return
 `reports/e3_drivebench_clean_lora_100/summary.md`.
+
+If the zip checker reports ambiguous image matches, inspect the printed
+`zip_prefixes` and rerun with the relevant DriveBench folder name, for example:
+
+```bash
+python scripts/12_check_drivebench_zip.py \
+  --input data/processed/drivebench_eval_clean.jsonl \
+  --image-zip data/drivebench_images.zip \
+  --zip-condition Clean \
+  --show-prefixes \
+  --limit 20
+
+ZIP_CONDITION=Clean bash scripts/run_eval_drivebench_zip.sh
+```
 
 ## Key References
 

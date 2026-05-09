@@ -74,6 +74,7 @@ def main() -> None:
     parser.add_argument("--adapter", default=None)
     parser.add_argument("--input", default=Path("data/processed/drivebench_eval.jsonl"), type=Path)
     parser.add_argument("--image-zip", default=None, type=Path)
+    parser.add_argument("--zip-condition", default=None)
     parser.add_argument("--out", default=Path("reports/drivebench_eval"), type=Path)
     parser.add_argument("--limit", default=100, type=int)
     parser.add_argument("--max-new-tokens", default=128, type=int)
@@ -117,7 +118,7 @@ def main() -> None:
     yes_no_scores: list[float] = []
     latencies: list[float] = []
 
-    with ImageLoader(args.image_zip) as image_loader:
+    with ImageLoader(args.image_zip, zip_condition=args.zip_condition) as image_loader:
         for row in tqdm(rows, desc="DriveBench eval"):
             question, answer = _question_and_answer(row)
             image_paths = [str(path) for path in row.get("images", [])]
@@ -182,6 +183,7 @@ def main() -> None:
         "adapter": args.adapter,
         "input": str(args.input),
         "image_zip": str(args.image_zip) if args.image_zip else None,
+        "zip_condition": args.zip_condition,
         "visual_token_budget": args.visual_token_budget,
         "strict_em": _mean(strict_scores),
         "relaxed_em": _mean(relaxed_scores),
