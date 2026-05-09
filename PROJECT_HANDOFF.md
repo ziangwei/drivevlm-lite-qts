@@ -340,6 +340,16 @@ server project quota is nearly full. Continue E0 with DriveLM validation samples
 first. Keep the DriveBench zip for later reliability evaluation after space is
 available or after older artifacts are cleaned.
 
+E0 DriveLM zero-shot has run successfully on 100 validation samples using
+`models/Qwen3-VL-4B-Instruct`. The run wrote predictions and metrics under
+`reports/e0_drivelm_100`, with average latency around 2.8 seconds per sample on
+the H100 node. Exact match is currently only a placeholder metric for natural
+language answers.
+
+Next milestone is E1: run a small LoRA SFT debug job on the prepared DriveLM
+training JSONL, then evaluate the resulting adapter on the same 100-sample
+DriveLM validation set.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL

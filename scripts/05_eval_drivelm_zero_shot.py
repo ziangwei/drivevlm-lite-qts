@@ -42,6 +42,7 @@ def _messages(question: str, images: list[Image.Image]) -> list[dict[str, Any]]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="models/Qwen3-VL-4B-Instruct")
+    parser.add_argument("--adapter", default=None)
     parser.add_argument("--input", default="data/processed/drivelm_sft_val.jsonl", type=Path)
     parser.add_argument("--out", default="reports/e0_drivelm_zero_shot", type=Path)
     parser.add_argument("--limit", default=100, type=int)
@@ -57,9 +58,14 @@ def main() -> None:
     model = AutoModelForImageTextToText.from_pretrained(
         args.model,
         trust_remote_code=True,
-        torch_dtype=dtype,
+        dtype=dtype,
         attn_implementation="sdpa",
-    ).to(device)
+    )
+    if args.adapter:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, args.adapter)
+    model = model.to(device)
     model.eval()
 
     rows = read_jsonl(args.input)
