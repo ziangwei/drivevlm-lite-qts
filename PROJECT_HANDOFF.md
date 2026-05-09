@@ -503,6 +503,39 @@ bash scripts/run_rescore_qts_input.sh
 Each `wc -l` output should be `500`. Return
 `reports/e2_qts_input_lora_10k_500_rescore/summary.md`.
 
+Rescore result:
+
+```text
+all_vtok128:
+  strict EM 0.548, relaxed EM 0.548, token F1 0.718, yes/no acc 0.811,
+  latency 0.746s, input tokens 620.3, images 6.00
+
+qts_rule_front_max3:
+  strict EM 0.538, relaxed EM 0.542, token F1 0.705, yes/no acc 0.793,
+  latency 0.561s, input tokens 302.2, images 2.74
+
+qts_rule_front_max2:
+  strict EM 0.536, relaxed EM 0.540, token F1 0.700, yes/no acc 0.787,
+  latency 0.560s, input tokens 216.8, images 1.87
+```
+
+Final E2 interpretation:
+
+- `qts_rule_front_max3` is the best current QTS-lite input-selection setting.
+- Compared with all-camera vtok-128, it reduces latency by about 25% and cuts
+  input tokens by about 51%, with only small quality loss.
+- Compared with the original default visual budget baseline
+  (`EM 0.546`, latency `1.216s`), it keeps nearly the same quality while reducing
+  latency by about 54%.
+- `qts_rule_front_max2` should not be the main setting because it cuts more input
+  tokens but does not improve latency over max-3 and loses slightly more quality.
+- The major remaining weakness is not efficiency, but DriveLM perception and
+  fine-grained grounding quality.
+
+Recommended next project step: stop E2 sweeps for now and move to either
+DriveBench reliability evaluation if storage allows, or build a report/demo
+summary from E0/E1/E2 results if DriveBench remains blocked by quota.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
