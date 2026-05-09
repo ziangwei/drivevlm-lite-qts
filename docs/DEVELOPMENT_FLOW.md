@@ -177,11 +177,32 @@ python scripts/07_analyze_drivelm_predictions.py \
 
 ## 9. Reports and Demo
 
-Generate reports:
+Run DriveBench from the image zip without extracting it when project quota or
+file count is tight:
 
 ```bash
-python scripts/05_eval_drivebench.py --config configs/eval/drivebench.yaml
+python scripts/02_prepare_drivebench.py \
+  --root data/drivebench \
+  --json data/drivebench/text/drivebench-test.json \
+  --image-root data/drivebench \
+  --out data/processed/drivebench_eval_clean.jsonl
+
+wc -l data/processed/drivebench_eval_clean.jsonl
+
+python scripts/12_check_drivebench_zip.py \
+  --input data/processed/drivebench_eval_clean.jsonl \
+  --image-zip data/drivebench_images.zip \
+  --limit 20
+
+RUN_NAME=e3_drivebench_clean_lora_100 \
+INPUT=data/processed/drivebench_eval_clean.jsonl \
+IMAGE_ZIP=data/drivebench_images.zip \
+OUT=reports/e3_drivebench_clean_lora_100 \
+LIMIT=100 \
+bash scripts/run_eval_drivebench_zip.sh
 ```
+
+Return `reports/e3_drivebench_clean_lora_100/summary.md`.
 
 Run local/server demo:
 

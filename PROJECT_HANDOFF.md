@@ -536,6 +536,37 @@ Recommended next project step: stop E2 sweeps for now and move to either
 DriveBench reliability evaluation if storage allows, or build a report/demo
 summary from E0/E1/E2 results if DriveBench remains blocked by quota.
 
+Because the server is constrained by file-count quota, do not fully extract
+`data/drivebench_images.zip`. The DriveBench evaluator now supports reading
+images directly from the zip archive.
+
+Run a small E3 clean DriveBench evaluation like this:
+
+```bash
+python scripts/02_prepare_drivebench.py \
+  --root data/drivebench \
+  --json data/drivebench/text/drivebench-test.json \
+  --image-root data/drivebench \
+  --out data/processed/drivebench_eval_clean.jsonl
+
+wc -l data/processed/drivebench_eval_clean.jsonl
+
+python scripts/12_check_drivebench_zip.py \
+  --input data/processed/drivebench_eval_clean.jsonl \
+  --image-zip data/drivebench_images.zip \
+  --limit 20
+
+RUN_NAME=e3_drivebench_clean_lora_100 \
+INPUT=data/processed/drivebench_eval_clean.jsonl \
+IMAGE_ZIP=data/drivebench_images.zip \
+OUT=reports/e3_drivebench_clean_lora_100 \
+LIMIT=100 \
+bash scripts/run_eval_drivebench_zip.sh
+```
+
+The `wc -l` output should be at least `100` for the first check run. Return
+`reports/e3_drivebench_clean_lora_100/summary.md`.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
