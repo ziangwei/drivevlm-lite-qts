@@ -25,6 +25,7 @@ def main() -> None:
 
     checked = 0
     missing: list[str] = []
+    ambiguous: list[str] = []
     with ImageLoader(args.image_zip, zip_condition=args.zip_condition) as loader:
         if args.show_prefixes:
             print("zip_prefixes:")
@@ -36,9 +37,12 @@ def main() -> None:
                 try:
                     loader.resolve(path)
                 except FileNotFoundError as exc:
-                    missing.append(str(path))
-                    if len(missing) <= 5:
-                        candidates = loader.candidates(path)
+                    candidates = loader.candidates(path)
+                    if candidates:
+                        ambiguous.append(str(path))
+                    else:
+                        missing.append(str(path))
+                    if len(missing) + len(ambiguous) <= 5:
                         if candidates:
                             print(f"CANDIDATES for {path}:")
                             for candidate in candidates[:20]:
@@ -49,10 +53,13 @@ def main() -> None:
 
     print(f"checked_rows={len(rows)}")
     print(f"checked_images={checked}")
+    print(f"ambiguous_images={len(ambiguous)}")
     print(f"missing_images={len(missing)}")
+    for path in ambiguous[:20]:
+        print(f"AMBIGUOUS {path}")
     for path in missing[:20]:
         print(f"MISSING {path}")
-    if missing:
+    if missing or ambiguous:
         raise SystemExit(1)
 
 
