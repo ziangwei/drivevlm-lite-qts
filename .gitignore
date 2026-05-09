@@ -11,6 +11,9 @@
 /checkpoints/
 /wandb/
 
+# Local interview/dev reflection notes
+/PROJECT_INTERVIEW_LOG.md
+
 # Archived prototype folders should not be committed if recreated locally.
 /oldversion/
 /.git_old*/
