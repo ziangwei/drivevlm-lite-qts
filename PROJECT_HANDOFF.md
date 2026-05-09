@@ -475,6 +475,34 @@ bash scripts/run_compare_qts_input.sh
 
 Return `reports/e2_qts_input_lora_10k_500_compare/comparison.md`.
 
+Comparison result for all-camera vtok-128 vs `qts_rule_front` max-3:
+
+```text
+overall delta: -0.010 strict EM
+has_object_ids / has_coordinates / has_camera_names delta: -0.003
+perception delta: -0.009
+planning delta: 0.000
+prediction delta: -0.020
+baseline-only correct: 21
+candidate-only correct: 16
+```
+
+Important caveat: many candidate-only and baseline-only differences are strict
+exact-match artifacts (`No.` vs `No`, semicolon vs comma wording, etc.). Before
+making a final E2 claim, rescore the existing predictions with relaxed exact
+match, token F1, and yes/no accuracy:
+
+```bash
+wc -l reports/e2_qts_input_lora_10k_500/all/predictions.jsonl
+wc -l reports/e2_qts_input_lora_10k_500/qts_rule_front/predictions.jsonl
+wc -l reports/e2_qts_input_lora_10k_500_max2/qts_rule_front/predictions.jsonl
+
+bash scripts/run_rescore_qts_input.sh
+```
+
+Each `wc -l` output should be `500`. Return
+`reports/e2_qts_input_lora_10k_500_rescore/summary.md`.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
