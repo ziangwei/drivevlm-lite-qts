@@ -421,6 +421,39 @@ bash scripts/run_eval_qts_input.sh
 The `wc -l` output must be `500`. Return
 `reports/e2_qts_input_lora_10k_500/summary.md` after the run.
 
+The QTS-lite input selection run completed on 500 validation samples:
+
+```text
+all:            EM 0.548, avg_latency_s 0.746, avg_images 6.00
+qts_rule:       EM 0.540, avg_latency_s 0.749, avg_images 3.38
+qts_rule_front: EM 0.538, avg_latency_s 0.561, avg_images 2.74
+front_only:     EM 0.508, avg_latency_s 0.559, avg_images 1.00
+```
+
+Interpretation: query-aware camera pruning is useful for latency, but it is not
+currently an accuracy improvement. `qts_rule_front` is the best practical tradeoff:
+it loses about 0.010 EM relative to the all-camera vtok-128 baseline while reducing
+latency by about 25% inside the vtok-128 setting, and by about 54% relative to the
+original default visual budget. `front_only` is too aggressive.
+
+Recommended next ablation:
+
+```bash
+wc -l data/processed_eval500/drivelm_sft_val.jsonl
+
+RUN_NAME=e2_qts_input_lora_10k_500_max2 \
+ADAPTER=checkpoints/qwen3vl4b_lora_sft_10k_real \
+INPUT=data/processed_eval500/drivelm_sft_val.jsonl \
+OUT_ROOT=reports/e2_qts_input_lora_10k_500_max2 \
+LIMIT=500 \
+VISUAL_TOKEN_BUDGET=128 \
+STRATEGIES="all qts_rule_front" \
+MAX_SELECTED_IMAGES=2 \
+bash scripts/run_eval_qts_input.sh
+```
+
+Return `reports/e2_qts_input_lora_10k_500_max2/summary.md`.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
