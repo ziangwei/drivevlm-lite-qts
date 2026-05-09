@@ -390,6 +390,37 @@ This measures whether lower visual-token budgets can cut latency without
 collapsing the current 100-sample accuracy. Use the result to decide whether
 deeper Qwen3-VL internal QTS-lite integration is worth the engineering time.
 
+E2 visual budget has now been validated on 500 DriveLM validation samples:
+
+```text
+default:   EM 0.546, avg_latency_s 1.216
+vtok_128:  EM 0.540, avg_latency_s 0.677
+vtok_256:  EM 0.528, avg_latency_s 0.643
+vtok_512:  EM 0.544, avg_latency_s 0.719
+```
+
+The key finding is that the default Qwen3-VL visual budget is redundant for this
+DriveLM setting. `vtok_128` keeps nearly the same exact match while reducing
+latency by about 44%, and `vtok_512` is almost accuracy-neutral while still
+substantially faster than default.
+
+Next run should evaluate the practical query-aware QTS-lite input selector:
+
+```bash
+wc -l data/processed_eval500/drivelm_sft_val.jsonl
+
+RUN_NAME=e2_qts_input_lora_10k_500 \
+ADAPTER=checkpoints/qwen3vl4b_lora_sft_10k_real \
+INPUT=data/processed_eval500/drivelm_sft_val.jsonl \
+OUT_ROOT=reports/e2_qts_input_lora_10k_500 \
+LIMIT=500 \
+VISUAL_TOKEN_BUDGET=128 \
+bash scripts/run_eval_qts_input.sh
+```
+
+The `wc -l` output must be `500`. Return
+`reports/e2_qts_input_lora_10k_500/summary.md` after the run.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL

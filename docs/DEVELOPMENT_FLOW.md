@@ -143,7 +143,29 @@ Then compare:
 - native Qwen3-VL default visual budget.
 - LoRA SFT default visual budget.
 - LoRA SFT at smaller visual budgets.
-- LoRA SFT + QTS-lite at 25% keep ratio.
+- LoRA SFT + QTS-lite input selection.
+- LoRA SFT + QTS-lite internal token selection.
+
+Run the practical query-aware input selector before doing deeper model surgery:
+
+```bash
+wc -l data/processed_eval500/drivelm_sft_val.jsonl
+```
+
+The expected output is `500`. If it is smaller, regenerate the eval JSONL before
+running the evaluation.
+
+```bash
+RUN_NAME=e2_qts_input_lora_10k_500 \
+ADAPTER=checkpoints/qwen3vl4b_lora_sft_10k_real \
+INPUT=data/processed_eval500/drivelm_sft_val.jsonl \
+OUT_ROOT=reports/e2_qts_input_lora_10k_500 \
+LIMIT=500 \
+VISUAL_TOKEN_BUDGET=128 \
+bash scripts/run_eval_qts_input.sh
+```
+
+Return `reports/e2_qts_input_lora_10k_500/summary.md` for comparison.
 
 Use the prediction analysis script when an eval result looks confusing:
 
