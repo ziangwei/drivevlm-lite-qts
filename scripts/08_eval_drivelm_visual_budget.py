@@ -225,8 +225,14 @@ def main() -> None:
     model.eval()
 
     rows = read_jsonl(args.input)
+    available_rows = len(rows)
     if args.limit > 0:
         rows = rows[: args.limit]
+    if args.limit > 0 and len(rows) < args.limit:
+        print(
+            "WARNING: requested limit is larger than the input JSONL. "
+            f"requested_limit={args.limit} available_rows={available_rows}"
+        )
 
     budget_specs: list[tuple[str, int | None, int | None]] = []
     if args.include_default:
@@ -265,7 +271,9 @@ def main() -> None:
         "model": args.model,
         "adapter": args.adapter,
         "input": str(args.input),
-        "limit": args.limit,
+        "requested_limit": args.limit,
+        "available_rows": available_rows,
+        "evaluated_rows": len(rows),
         "metrics": all_metrics,
     }
     (args.out_root / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
