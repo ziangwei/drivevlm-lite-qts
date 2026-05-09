@@ -454,6 +454,27 @@ bash scripts/run_eval_qts_input.sh
 
 Return `reports/e2_qts_input_lora_10k_500_max2/summary.md`.
 
+The max-2 ablation completed:
+
+```text
+all:            EM 0.548, avg_latency_s 0.742, avg_images 6.00
+qts_rule_front: EM 0.536, avg_latency_s 0.560, avg_images 1.87
+```
+
+This does not improve the practical tradeoff over max-3. It cuts input tokens
+further but latency is effectively unchanged, while EM is slightly lower than
+the max-3 `qts_rule_front` run. Keep max-3 as the current QTS input-selection
+setting.
+
+Next useful analysis is to compare the all-camera vtok-128 predictions against
+`qts_rule_front` by task and feature:
+
+```bash
+bash scripts/run_compare_qts_input.sh
+```
+
+Return `reports/e2_qts_input_lora_10k_500_compare/comparison.md`.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
