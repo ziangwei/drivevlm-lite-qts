@@ -123,20 +123,35 @@ accelerate launch scripts/04_train_sft.py \
 
 Start with 5K-10K samples. Increase only after loss, JSON validity, and evaluation look sane.
 
-## 8. QTS-lite
+## 8. E2 Visual Budget / QTS-lite
 
 ```bash
-accelerate launch scripts/04_train_sft.py \
-  --config configs/train/qts_lite.yaml
+RUN_NAME=e2_visual_budget_lora_10k_100 \
+ADAPTER=checkpoints/qwen3vl4b_lora_sft_10k_real \
+OUT_ROOT=reports/e2_visual_budget_lora_10k_100 \
+LIMIT=100 \
+BUDGETS="128 256 512 1024" \
+bash scripts/run_eval_visual_budget.sh
 ```
 
-First compare:
+First compare the trained LoRA checkpoint under different visual token budgets.
+This gives the accuracy/latency curve before doing deeper Qwen3-VL internal
+QTS-lite integration.
 
-- native Qwen3-VL.
-- LoRA SFT.
+Then compare:
+
+- native Qwen3-VL default visual budget.
+- LoRA SFT default visual budget.
+- LoRA SFT at smaller visual budgets.
 - LoRA SFT + QTS-lite at 25% keep ratio.
 
-Only after that run keep-ratio sweeps.
+Use the prediction analysis script when an eval result looks confusing:
+
+```bash
+python scripts/07_analyze_drivelm_predictions.py \
+  --predictions reports/e1_drivelm_lora_10k_real_100/predictions.jsonl \
+  --out-dir reports/e1_drivelm_lora_10k_real_100_analysis
+```
 
 ## 9. Reports and Demo
 

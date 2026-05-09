@@ -360,6 +360,36 @@ Important: the first `sft_5k` and `sft_10k` named runs actually trained on about
 created with only 1000 training rows. Before running a true 5K/10K experiment,
 regenerate the DriveLM processed JSONL with a larger `--train-samples` value.
 
+E1 real 10K LoRA SFT has completed:
+
+```text
+checkpoint: checkpoints/qwen3vl4b_lora_sft_10k_real
+train log: logs/20260509_121453_sft_10k_real.log
+gpu log: logs/20260509_121453_sft_10k_real_gpu.csv
+eval report: reports/e1_drivelm_lora_10k_real_100
+exact_match: 0.53 on 100 validation samples
+avg_latency_s: about 1.24
+```
+
+Qualitative spot checks show the model still fails many fine-grained grounding
+questions with object IDs, camera names, and coordinates. Treat exact match as a
+coarse progress signal, not as proof that scene grounding is solved.
+
+Next milestone is E2 visual budget / QTS-lite:
+
+```bash
+RUN_NAME=e2_visual_budget_lora_10k_100 \
+ADAPTER=checkpoints/qwen3vl4b_lora_sft_10k_real \
+OUT_ROOT=reports/e2_visual_budget_lora_10k_100 \
+LIMIT=100 \
+BUDGETS="128 256 512 1024" \
+bash scripts/run_eval_visual_budget.sh
+```
+
+This measures whether lower visual-token budgets can cut latency without
+collapsing the current 100-sample accuracy. Use the result to decide whether
+deeper Qwen3-VL internal QTS-lite integration is worth the engineering time.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
