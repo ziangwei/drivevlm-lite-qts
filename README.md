@@ -81,3 +81,6 @@ python -m pip install -r requirements-train.txt -c constraints-torch-cu121.txt
 python -m pip install -r requirements-report.txt -c constraints-torch-cu121.txt
 python -m pip install -r requirements-demo.txt -c constraints-torch-cu121.txt
 ```
+
+For server runs, prefer the bash launchers in `scripts/run_*.sh`; they write
+stdout/stderr to timestamped files under `logs/`.

@@ -231,3 +231,40 @@ python scripts/02_prepare_drivebench.py \
 5. E4: Small Gradio demo.
 
 Do not start QTS before E0 and E1 are working.
+
+## 9. Logged Launchers
+
+Use bash launchers for server runs so stdout/stderr are saved under `logs/`.
+The `logs/` folder is ignored by Git.
+
+E0 baseline:
+
+```bash
+bash scripts/run_e0_drivelm.sh
+```
+
+SFT collator smoke test:
+
+```bash
+DRY_RUN_COLLATOR=1 MAX_TRAIN_SAMPLES=10 MAX_EVAL_SAMPLES=5 bash scripts/run_sft_debug.sh
+```
+
+SFT debug training:
+
+```bash
+MAX_TRAIN_SAMPLES=100 MAX_EVAL_SAMPLES=20 bash scripts/run_sft_debug.sh
+```
+
+Evaluate the debug LoRA adapter:
+
+```bash
+bash scripts/run_eval_lora_debug.sh
+```
+
+The launchers accept environment variable overrides, for example:
+
+```bash
+RUN_NAME=sft_debug_1000 MAX_TRAIN_SAMPLES=1000 MAX_EVAL_SAMPLES=100 \
+  OUTPUT_DIR=checkpoints/qwen3vl4b_lora_sft_1k \
+  bash scripts/run_sft_debug.sh
+```

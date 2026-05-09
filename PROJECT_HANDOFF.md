@@ -350,6 +350,11 @@ Next milestone is E1: run a small LoRA SFT debug job on the prepared DriveLM
 training JSONL, then evaluate the resulting adapter on the same 100-sample
 DriveLM validation set.
 
+Server runs should use the bash launchers added under `scripts/run_*.sh` so
+logs are written to timestamped files in `logs/`. Start with
+`DRY_RUN_COLLATOR=1 bash scripts/run_sft_debug.sh`, then
+`MAX_TRAIN_SAMPLES=100 MAX_EVAL_SAMPLES=20 bash scripts/run_sft_debug.sh`.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
