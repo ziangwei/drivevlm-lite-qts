@@ -143,6 +143,15 @@ def main() -> None:
     parser.add_argument("--output-dir", default=None, type=Path)
     parser.add_argument("--max-train-samples", default=0, type=int)
     parser.add_argument("--max-eval-samples", default=0, type=int)
+    parser.add_argument("--gradient-accumulation-steps", default=None, type=int)
+    parser.add_argument("--learning-rate", default=None, type=float)
+    parser.add_argument("--num-train-epochs", default=None, type=float)
+    parser.add_argument(
+        "--gradient-checkpointing",
+        dest="gradient_checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     parser.add_argument("--dry-run-collator", action="store_true")
     args = parser.parse_args()
 
@@ -150,6 +159,15 @@ def main() -> None:
     from transformers import AutoModelForImageTextToText, AutoProcessor, Trainer
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    if args.gradient_accumulation_steps is not None:
+        config["gradient_accumulation_steps"] = args.gradient_accumulation_steps
+    if args.learning_rate is not None:
+        config["learning_rate"] = args.learning_rate
+    if args.num_train_epochs is not None:
+        config["num_train_epochs"] = args.num_train_epochs
+    if args.gradient_checkpointing is not None:
+        config["gradient_checkpointing"] = args.gradient_checkpointing
+
     model_config_path = Path(config["model_config"])
     model_config = yaml.safe_load(model_config_path.read_text(encoding="utf-8"))
 
@@ -186,6 +204,19 @@ def main() -> None:
     train_dataset = DriveLMSFTDataset(train_file, limit=args.max_train_samples)
     eval_dataset = DriveLMSFTDataset(eval_file, limit=args.max_eval_samples)
     collator = VLMDataCollator(processor)
+    print(f"train_file={train_file}")
+    print(f"eval_file={eval_file}")
+    print(f"requested_max_train_samples={args.max_train_samples}")
+    print(f"actual_train_samples={len(train_dataset)}")
+    print(f"actual_eval_samples={len(eval_dataset)}")
+    print(f"gradient_accumulation_steps={config.get('gradient_accumulation_steps', 16)}")
+    print(f"learning_rate={config.get('learning_rate', 1e-4)}")
+    print(f"gradient_checkpointing={config.get('gradient_checkpointing', True)}")
+    if args.max_train_samples > 0 and len(train_dataset) < args.max_train_samples:
+        print(
+            "WARNING: requested max train samples is larger than the train JSONL. "
+            "Regenerate data/processed/drivelm_sft_train.jsonl for a larger run."
+        )
 
     if args.dry_run_collator:
         batch = collator([train_dataset[0]])

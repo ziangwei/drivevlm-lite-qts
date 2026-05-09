@@ -355,6 +355,11 @@ logs are written to timestamped files in `logs/`. Start with
 `DRY_RUN_COLLATOR=1 bash scripts/run_sft_debug.sh`, then
 `MAX_TRAIN_SAMPLES=100 MAX_EVAL_SAMPLES=20 bash scripts/run_sft_debug.sh`.
 
+Important: the first `sft_5k` and `sft_10k` named runs actually trained on about
+1K examples because `data/processed/drivelm_sft_train.jsonl` was originally
+created with only 1000 training rows. Before running a true 5K/10K experiment,
+regenerate the DriveLM processed JSONL with a larger `--train-samples` value.
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
