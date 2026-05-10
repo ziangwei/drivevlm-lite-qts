@@ -109,12 +109,31 @@ def load_nuscenes_tables(
             "data": {},
         }
 
+    candidate_tokens = []
+    for sample in samples.values():
+        future_tokens = _future_sample_tokens(sample, samples, future_steps)
+        if len(future_tokens) < future_steps:
+            continue
+        candidate_tokens.append(sample["token"])
+
+    if seed is not None:
+        random.Random(seed).shuffle(candidate_tokens)
+    total_candidate_tokens = len(candidate_tokens)
+    if candidate_limit > 0:
+        candidate_tokens = candidate_tokens[:candidate_limit]
+    selected_candidate_count = len(candidate_tokens)
+
+    needed_sample_tokens: set[str] = set()
+    for token in candidate_tokens:
+        needed_sample_tokens.add(token)
+        needed_sample_tokens.update(_future_sample_tokens(samples[token], samples, future_steps))
+
     calibrated_sensor_channels = _load_calibrated_sensor_channels(nuscenes_root, version)
     sample_data: dict[str, dict[str, Any]] = {}
     keyframe_camera_records = 0
     for row in _iter_json_array(_table_path(nuscenes_root, version, "sample_data")):
         sample_token = row.get("sample_token")
-        if sample_token not in samples:
+        if sample_token not in needed_sample_tokens:
             continue
         channel = row.get("channel") or calibrated_sensor_channels.get(row.get("calibrated_sensor_token", ""))
         if channel not in cameras:
@@ -133,25 +152,10 @@ def load_nuscenes_tables(
         samples[sample_token]["data"][channel] = token
         keyframe_camera_records += 1
 
-    candidate_tokens = []
-    needed_sample_tokens: set[str] = set()
-    for sample in samples.values():
-        if not all(camera in sample.get("data", {}) for camera in cameras):
-            continue
-        future_tokens = _future_sample_tokens(sample, samples, future_steps)
-        if len(future_tokens) < future_steps:
-            continue
-        candidate_tokens.append(sample["token"])
-
-    if seed is not None:
-        random.Random(seed).shuffle(candidate_tokens)
-    total_candidate_tokens = len(candidate_tokens)
-    if candidate_limit > 0:
-        candidate_tokens = candidate_tokens[:candidate_limit]
-
-    for token in candidate_tokens:
-        needed_sample_tokens.add(token)
-        needed_sample_tokens.update(_future_sample_tokens(samples[token], samples, future_steps))
+    camera_complete_candidate_tokens = [
+        token for token in candidate_tokens if all(camera in samples[token].get("data", {}) for camera in cameras)
+    ]
+    candidate_tokens = camera_complete_candidate_tokens
 
     needed_sample_data_tokens: set[str] = set()
     for token in needed_sample_tokens:
@@ -183,6 +187,9 @@ def load_nuscenes_tables(
             "total_samples": len(samples),
             "total_candidate_tokens": total_candidate_tokens,
             "indexed_candidate_tokens": len(candidate_tokens),
+            "selected_candidate_tokens": selected_candidate_count,
+            "needed_sample_tokens": len(needed_sample_tokens),
+            "camera_complete_candidate_tokens": len(camera_complete_candidate_tokens),
             "indexed_keyframe_camera_records": keyframe_camera_records,
             "needed_sample_data_tokens": len(needed_sample_data_tokens),
             "indexed_sample_data_tokens": len(sample_data),

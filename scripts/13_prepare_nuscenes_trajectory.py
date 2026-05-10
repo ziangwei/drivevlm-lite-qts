@@ -21,7 +21,7 @@ def main() -> None:
     parser.add_argument("--step-seconds", default=0.5, type=float)
     parser.add_argument("--seed", default=2026, type=int)
     parser.add_argument("--max-missing-images", default=0, type=int)
-    parser.add_argument("--candidate-multiplier", default=20, type=int)
+    parser.add_argument("--candidate-multiplier", default=4, type=int)
     args = parser.parse_args()
 
     total = args.train_samples + args.val_samples
