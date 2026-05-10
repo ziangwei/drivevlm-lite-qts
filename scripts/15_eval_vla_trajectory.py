@@ -18,6 +18,9 @@ from drivevlm_lite.data.nuscenes_trajectory import ade, fde, parse_trajectory_te
 from drivevlm_lite.qts import camera_name_from_path
 
 
+IMAGE_MODES = ("all", "front3", "front", "none", "mismatch_all", "mismatch_front3", "mismatch_front")
+
+
 def _load_images(paths: list[str]) -> list[Image.Image]:
     return [Image.open(path).convert("RGB") for path in paths]
 
@@ -68,6 +71,23 @@ def _select_image_paths(paths: list[str], image_mode: str) -> list[str]:
     raise ValueError(f"Unknown image mode: {image_mode}")
 
 
+def _image_source(
+    rows: list[dict[str, Any]],
+    row_idx: int,
+    image_mode: str,
+    mismatch_offset: int,
+) -> tuple[dict[str, Any], str]:
+    if not image_mode.startswith("mismatch_"):
+        return rows[row_idx], image_mode
+    if len(rows) <= 1:
+        return rows[row_idx], image_mode.removeprefix("mismatch_")
+
+    offset = mismatch_offset % len(rows)
+    if offset == 0:
+        offset = 1
+    return rows[(row_idx + offset) % len(rows)], image_mode.removeprefix("mismatch_")
+
+
 def _processor_inputs(processor: Any, text: str, images: list[Image.Image]) -> dict[str, Any]:
     if images:
         return processor(text=[text], images=images, return_tensors="pt")
@@ -86,7 +106,8 @@ def main() -> None:
     parser.add_argument("--out", default="reports/vla_eval", type=Path)
     parser.add_argument("--limit", default=100, type=int)
     parser.add_argument("--max-new-tokens", default=96, type=int)
-    parser.add_argument("--image-mode", choices=("all", "front3", "front", "none"), default="all")
+    parser.add_argument("--image-mode", choices=IMAGE_MODES, default="all")
+    parser.add_argument("--mismatch-offset", default=17, type=int)
     args = parser.parse_args()
 
     from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -121,10 +142,11 @@ def main() -> None:
 
     args.out.mkdir(parents=True, exist_ok=True)
 
-    for row in tqdm(rows, desc="VLA trajectory eval"):
+    for row_idx, row in enumerate(tqdm(rows, desc="VLA trajectory eval")):
         question, answer = _question_and_answer(row)
         target = _target(row, answer)
-        selected_image_paths = _select_image_paths(row.get("images", []), args.image_mode)
+        image_source_row, select_mode = _image_source(rows, row_idx, args.image_mode, args.mismatch_offset)
+        selected_image_paths = _select_image_paths(image_source_row.get("images", []), select_mode)
         images = _load_images(selected_image_paths)
         messages = _messages(question, images)
         text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -172,6 +194,7 @@ def main() -> None:
                 "latency_s": latency_s,
                 "images": row.get("images", []),
                 "selected_images": selected_image_paths,
+                "image_source_sample_id": image_source_row.get("sample_id"),
                 "image_mode": args.image_mode,
             }
         )
@@ -186,6 +209,7 @@ def main() -> None:
         "avg_latency_s": _mean(latencies),
         "avg_images": _mean([float(len(item["selected_images"])) for item in predictions]),
         "image_mode": args.image_mode,
+        "mismatch_offset": args.mismatch_offset,
         "model": args.model,
         "adapter": args.adapter,
         "input": str(args.input),
@@ -210,6 +234,7 @@ def main() -> None:
         f"- adapter: {args.adapter or 'none'}",
         f"- input: {args.input}",
         f"- image_mode: {args.image_mode}",
+        f"- mismatch_offset: {args.mismatch_offset}",
     ]
     (args.out / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     print(json.dumps(metrics, indent=2))
