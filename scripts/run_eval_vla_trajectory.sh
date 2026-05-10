@@ -12,6 +12,7 @@ INPUT="${INPUT:-data/processed_vla/nuscenes_vla_val.jsonl}"
 OUT="${OUT:-reports/vla_eval_100}"
 LIMIT="${LIMIT:-100}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-96}"
+IMAGE_MODE="${IMAGE_MODE:-all}"
 
 cmd=(
   python scripts/15_eval_vla_trajectory.py
@@ -20,6 +21,7 @@ cmd=(
   --out "${OUT}"
   --limit "${LIMIT}"
   --max-new-tokens "${MAX_NEW_TOKENS}"
+  --image-mode "${IMAGE_MODE}"
 )
 
 if [[ -n "${ADAPTER}" ]]; then
@@ -39,6 +41,7 @@ fi
   echo "out=${OUT}"
   echo "limit=${LIMIT}"
   echo "max_new_tokens=${MAX_NEW_TOKENS}"
+  echo "image_mode=${IMAGE_MODE}"
   echo "command=${cmd[*]}"
   echo
   "${cmd[@]}"

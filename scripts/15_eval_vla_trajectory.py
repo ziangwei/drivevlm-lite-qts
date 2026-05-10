@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from drivevlm_lite.data.jsonl import read_jsonl, write_jsonl
 from drivevlm_lite.data.nuscenes_trajectory import ade, fde, parse_trajectory_text
+from drivevlm_lite.qts import camera_name_from_path
 
 
 def _load_images(paths: list[str]) -> list[Image.Image]:
@@ -44,6 +45,35 @@ def _messages(question: str, images: list[Image.Image]) -> list[dict[str, Any]]:
     return [{"role": "user", "content": content}]
 
 
+def _select_image_paths(paths: list[str], image_mode: str) -> list[str]:
+    if image_mode == "all":
+        return list(paths)
+    if image_mode == "none":
+        return []
+
+    camera_to_path: dict[str, str] = {}
+    for path in paths:
+        camera = camera_name_from_path(path)
+        if camera:
+            camera_to_path.setdefault(camera, path)
+
+    if image_mode == "front":
+        return [camera_to_path["CAM_FRONT"]] if "CAM_FRONT" in camera_to_path else []
+    if image_mode == "front3":
+        return [
+            camera_to_path[camera]
+            for camera in ("CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT")
+            if camera in camera_to_path
+        ]
+    raise ValueError(f"Unknown image mode: {image_mode}")
+
+
+def _processor_inputs(processor: Any, text: str, images: list[Image.Image]) -> dict[str, Any]:
+    if images:
+        return processor(text=[text], images=images, return_tensors="pt")
+    return processor(text=[text], return_tensors="pt")
+
+
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
@@ -56,6 +86,7 @@ def main() -> None:
     parser.add_argument("--out", default="reports/vla_eval", type=Path)
     parser.add_argument("--limit", default=100, type=int)
     parser.add_argument("--max-new-tokens", default=96, type=int)
+    parser.add_argument("--image-mode", choices=("all", "front3", "front", "none"), default="all")
     args = parser.parse_args()
 
     from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -93,10 +124,11 @@ def main() -> None:
     for row in tqdm(rows, desc="VLA trajectory eval"):
         question, answer = _question_and_answer(row)
         target = _target(row, answer)
-        images = _load_images(row.get("images", []))
+        selected_image_paths = _select_image_paths(row.get("images", []), args.image_mode)
+        images = _load_images(selected_image_paths)
         messages = _messages(question, images)
         text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = processor(text=[text], images=images, return_tensors="pt")
+        inputs = _processor_inputs(processor, text, images)
         inputs = {key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()}
 
         start = time.perf_counter()
@@ -139,6 +171,8 @@ def main() -> None:
                 "fde": row_fde,
                 "latency_s": latency_s,
                 "images": row.get("images", []),
+                "selected_images": selected_image_paths,
+                "image_mode": args.image_mode,
             }
         )
 
@@ -150,6 +184,8 @@ def main() -> None:
         "fde": _mean(fdes),
         "valid_ade_count": len(ades),
         "avg_latency_s": _mean(latencies),
+        "avg_images": _mean([float(len(item["selected_images"])) for item in predictions]),
+        "image_mode": args.image_mode,
         "model": args.model,
         "adapter": args.adapter,
         "input": str(args.input),
@@ -161,17 +197,19 @@ def main() -> None:
     lines = [
         "# VLA Trajectory Evaluation",
         "",
-        "| count | parse rate | exact points | ADE m | FDE m | valid ADE n | avg latency s |",
-        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| count | parse rate | exact points | ADE m | FDE m | valid ADE n | avg latency s | avg images |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         (
             f"| {metrics['count']} | {metrics['parse_rate']:.3f} | "
             f"{metrics['exact_point_count_rate']:.3f} | {metrics['ade']:.3f} | "
-            f"{metrics['fde']:.3f} | {metrics['valid_ade_count']} | {metrics['avg_latency_s']:.3f} |"
+            f"{metrics['fde']:.3f} | {metrics['valid_ade_count']} | {metrics['avg_latency_s']:.3f} | "
+            f"{metrics['avg_images']:.2f} |"
         ),
         "",
         f"- model: {args.model}",
         f"- adapter: {args.adapter or 'none'}",
         f"- input: {args.input}",
+        f"- image_mode: {args.image_mode}",
     ]
     (args.out / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     print(json.dumps(metrics, indent=2))
