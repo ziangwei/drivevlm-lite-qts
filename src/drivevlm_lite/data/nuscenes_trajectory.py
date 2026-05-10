@@ -104,8 +104,34 @@ def load_nuscenes_tables(
             "scene_token": row["scene_token"],
             "timestamp": row["timestamp"],
             "next": row.get("next") or "",
-            "data": row.get("data", {}),
+            # Official nuScenes sample.json does not store the camera data mapping.
+            # It is reconstructed below from sample_data -> calibrated_sensor -> sensor.
+            "data": {},
         }
+
+    calibrated_sensor_channels = _load_calibrated_sensor_channels(nuscenes_root, version)
+    sample_data: dict[str, dict[str, Any]] = {}
+    keyframe_camera_records = 0
+    for row in _iter_json_array(_table_path(nuscenes_root, version, "sample_data")):
+        sample_token = row.get("sample_token")
+        if sample_token not in samples:
+            continue
+        channel = row.get("channel") or calibrated_sensor_channels.get(row.get("calibrated_sensor_token", ""))
+        if channel not in cameras:
+            continue
+        if row.get("is_key_frame") is False:
+            continue
+        token = row["token"]
+        compact = {
+            "token": token,
+            "sample_token": sample_token,
+            "channel": channel,
+            "filename": row["filename"],
+            "ego_pose_token": row["ego_pose_token"],
+        }
+        sample_data[token] = compact
+        samples[sample_token]["data"][channel] = token
+        keyframe_camera_records += 1
 
     candidate_tokens = []
     needed_sample_tokens: set[str] = set()
@@ -132,18 +158,9 @@ def load_nuscenes_tables(
         data = samples[token].get("data", {})
         needed_sample_data_tokens.update(str(value) for value in data.values())
 
-    sample_data: dict[str, dict[str, Any]] = {}
     needed_pose_tokens: set[str] = set()
-    for row in _iter_json_array(_table_path(nuscenes_root, version, "sample_data")):
-        token = row["token"]
-        if token not in needed_sample_data_tokens:
-            continue
-        compact = {
-            "token": token,
-            "filename": row["filename"],
-            "ego_pose_token": row["ego_pose_token"],
-        }
-        sample_data[token] = compact
+    sample_data = {token: row for token, row in sample_data.items() if token in needed_sample_data_tokens}
+    for row in sample_data.values():
         needed_pose_tokens.add(row["ego_pose_token"])
 
     ego_poses: dict[str, dict[str, Any]] = {}
@@ -166,12 +183,26 @@ def load_nuscenes_tables(
             "total_samples": len(samples),
             "total_candidate_tokens": total_candidate_tokens,
             "indexed_candidate_tokens": len(candidate_tokens),
+            "indexed_keyframe_camera_records": keyframe_camera_records,
             "needed_sample_data_tokens": len(needed_sample_data_tokens),
             "indexed_sample_data_tokens": len(sample_data),
             "needed_pose_tokens": len(needed_pose_tokens),
             "indexed_pose_tokens": len(ego_poses),
         },
     }
+
+
+def _load_calibrated_sensor_channels(nuscenes_root: Path, version: str) -> dict[str, str]:
+    sensor_channels = {}
+    for row in _iter_json_array(_table_path(nuscenes_root, version, "sensor")):
+        sensor_channels[row["token"]] = row.get("channel", "")
+
+    calibrated_channels = {}
+    for row in _iter_json_array(_table_path(nuscenes_root, version, "calibrated_sensor")):
+        channel = sensor_channels.get(row.get("sensor_token", ""), "")
+        if channel:
+            calibrated_channels[row["token"]] = channel
+    return calibrated_channels
 
 
 def build_trajectory_samples_with_stats(
