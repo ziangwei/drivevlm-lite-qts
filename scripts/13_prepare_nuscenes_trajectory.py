@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import random
 import sys
 from pathlib import Path
 
@@ -24,16 +23,17 @@ def main() -> None:
     parser.add_argument("--max-missing-images", default=0, type=int)
     args = parser.parse_args()
 
+    total = args.train_samples + args.val_samples
     samples = build_trajectory_samples(
         args.nuscenes_root,
         version=args.version,
         future_steps=args.future_steps,
         cameras=DEFAULT_CAMERAS,
         max_missing_images=args.max_missing_images,
+        sample_limit=total,
+        seed=args.seed,
     )
-    random.Random(args.seed).shuffle(samples)
 
-    total = args.train_samples + args.val_samples
     selected = samples[:total] if total > 0 else samples
     val = selected[: args.val_samples]
     train = selected[args.val_samples :]

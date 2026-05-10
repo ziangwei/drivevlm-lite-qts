@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,27 +33,128 @@ class TrajectorySample:
     waypoints: list[tuple[float, float]]
 
 
-def load_nuscenes_tables(nuscenes_root: Path, version: str) -> dict[str, Any]:
+def _iter_json_array(path: Path):
+    decoder = json.JSONDecoder()
+    buffer = ""
+    started = False
+    with path.open("r", encoding="utf-8") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk and not buffer.strip():
+                break
+            buffer += chunk
+            while True:
+                buffer = buffer.lstrip()
+                if not started:
+                    if not buffer:
+                        break
+                    if buffer[0] != "[":
+                        raise ValueError(f"Expected top-level JSON array in {path}")
+                    buffer = buffer[1:]
+                    started = True
+                    continue
+                buffer = buffer.lstrip()
+                if not buffer:
+                    break
+                if buffer[0] == "]":
+                    return
+                if buffer[0] == ",":
+                    buffer = buffer[1:]
+                    continue
+                try:
+                    item, end_idx = decoder.raw_decode(buffer)
+                except json.JSONDecodeError:
+                    if not chunk:
+                        raise
+                    break
+                yield item
+                buffer = buffer[end_idx:]
+            if not chunk:
+                break
+
+
+def _table_path(nuscenes_root: Path, version: str, name: str) -> Path:
     version_dir = nuscenes_root / version
     if not version_dir.exists():
         raise FileNotFoundError(f"nuScenes version directory not found: {version_dir}")
+    path = version_dir / f"{name}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"nuScenes table not found: {path}")
+    return path
 
-    def load_table(name: str) -> list[dict[str, Any]]:
-        path = version_dir / f"{name}.json"
-        if not path.exists():
-            raise FileNotFoundError(f"nuScenes table not found: {path}")
-        return json.loads(path.read_text(encoding="utf-8"))
 
-    samples = load_table("sample")
-    sample_data = load_table("sample_data")
-    ego_poses = load_table("ego_pose")
-    scenes = load_table("scene")
+def load_nuscenes_tables(
+    nuscenes_root: Path,
+    version: str,
+    future_steps: int,
+    cameras: tuple[str, ...],
+    sample_limit: int = 0,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    samples: dict[str, dict[str, Any]] = {}
+    for row in _iter_json_array(_table_path(nuscenes_root, version, "sample")):
+        samples[row["token"]] = {
+            "token": row["token"],
+            "scene_token": row["scene_token"],
+            "timestamp": row["timestamp"],
+            "next": row.get("next") or "",
+            "data": row.get("data", {}),
+        }
+
+    candidate_tokens = []
+    needed_sample_tokens: set[str] = set()
+    for sample in samples.values():
+        if not all(camera in sample.get("data", {}) for camera in cameras):
+            continue
+        future_tokens = _future_sample_tokens(sample, samples, future_steps)
+        if len(future_tokens) < future_steps:
+            continue
+        candidate_tokens.append(sample["token"])
+
+    if seed is not None:
+        random.Random(seed).shuffle(candidate_tokens)
+    if sample_limit > 0:
+        candidate_tokens = candidate_tokens[:sample_limit]
+
+    for token in candidate_tokens:
+        needed_sample_tokens.add(token)
+        needed_sample_tokens.update(_future_sample_tokens(samples[token], samples, future_steps))
+
+    needed_sample_data_tokens: set[str] = set()
+    for token in needed_sample_tokens:
+        data = samples[token].get("data", {})
+        needed_sample_data_tokens.update(str(value) for value in data.values())
+
+    sample_data: dict[str, dict[str, Any]] = {}
+    needed_pose_tokens: set[str] = set()
+    for row in _iter_json_array(_table_path(nuscenes_root, version, "sample_data")):
+        token = row["token"]
+        if token not in needed_sample_data_tokens:
+            continue
+        compact = {
+            "token": token,
+            "filename": row["filename"],
+            "ego_pose_token": row["ego_pose_token"],
+        }
+        sample_data[token] = compact
+        needed_pose_tokens.add(row["ego_pose_token"])
+
+    ego_poses: dict[str, dict[str, Any]] = {}
+    for row in _iter_json_array(_table_path(nuscenes_root, version, "ego_pose")):
+        token = row["token"]
+        if token not in needed_pose_tokens:
+            continue
+        ego_poses[token] = {
+            "token": token,
+            "translation": row["translation"],
+            "rotation": row["rotation"],
+        }
 
     return {
-        "samples": {row["token"]: row for row in samples},
-        "sample_data": {row["token"]: row for row in sample_data},
-        "ego_poses": {row["token"]: row for row in ego_poses},
-        "scenes": {row["token"]: row for row in scenes},
+        "samples": samples,
+        "candidate_tokens": candidate_tokens,
+        "sample_data": sample_data,
+        "ego_poses": ego_poses,
     }
 
 
@@ -62,14 +164,25 @@ def build_trajectory_samples(
     future_steps: int = 6,
     cameras: tuple[str, ...] = DEFAULT_CAMERAS,
     max_missing_images: int = 0,
+    sample_limit: int = 0,
+    seed: int | None = None,
 ) -> list[TrajectorySample]:
-    tables = load_nuscenes_tables(nuscenes_root, version)
+    tables = load_nuscenes_tables(
+        nuscenes_root,
+        version,
+        future_steps=future_steps,
+        cameras=cameras,
+        sample_limit=sample_limit,
+        seed=seed,
+    )
     samples: dict[str, dict[str, Any]] = tables["samples"]
+    candidate_tokens: list[str] = tables["candidate_tokens"]
     sample_data: dict[str, dict[str, Any]] = tables["sample_data"]
     ego_poses: dict[str, dict[str, Any]] = tables["ego_poses"]
 
     out: list[TrajectorySample] = []
-    for sample in samples.values():
+    for token in candidate_tokens:
+        sample = samples[token]
         future_tokens = _future_sample_tokens(sample, samples, future_steps)
         if len(future_tokens) < future_steps:
             continue
@@ -81,7 +194,11 @@ def build_trajectory_samples(
         image_paths = []
         missing_images = 0
         for camera in cameras:
-            sd = sample_data[data[camera]]
+            sd = sample_data.get(data[camera])
+            if sd is None:
+                missing_images += 1
+                image_paths.append(str(nuscenes_root / f"MISSING/{camera}/{data[camera]}"))
+                continue
             image_path = nuscenes_root / sd["filename"]
             if not image_path.exists():
                 missing_images += 1
@@ -90,11 +207,18 @@ def build_trajectory_samples(
             continue
 
         current_pose = _pose_for_sample(sample, sample_data, ego_poses)
+        if current_pose is None:
+            continue
         future_waypoints = []
         for token in future_tokens:
             future_pose = _pose_for_sample(samples[token], sample_data, ego_poses)
+            if future_pose is None:
+                future_waypoints = []
+                break
             x, y, _ = _global_to_ego(future_pose.translation, current_pose)
             future_waypoints.append((round(x, 3), round(y, 3)))
+        if len(future_waypoints) < future_steps:
+            continue
 
         out.append(
             TrajectorySample(
@@ -180,11 +304,15 @@ def _pose_for_sample(
     sample: dict[str, Any],
     sample_data: dict[str, dict[str, Any]],
     ego_poses: dict[str, dict[str, Any]],
-) -> Pose:
+) -> Pose | None:
     data = sample.get("data", {})
     sd_token = data.get("CAM_FRONT") or next(iter(data.values()))
-    sd = sample_data[sd_token]
-    pose_row = ego_poses[sd["ego_pose_token"]]
+    sd = sample_data.get(sd_token)
+    if sd is None:
+        return None
+    pose_row = ego_poses.get(sd["ego_pose_token"])
+    if pose_row is None:
+        return None
     return Pose(
         translation=tuple(float(value) for value in pose_row["translation"]),
         rotation=tuple(float(value) for value in pose_row["rotation"]),
