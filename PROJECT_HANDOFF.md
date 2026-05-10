@@ -536,6 +536,46 @@ Recommended next project step: stop E2 sweeps for now and move to either
 DriveBench reliability evaluation if storage allows, or build a report/demo
 summary from E0/E1/E2 results if DriveBench remains blocked by quota.
 
+The project direction is now being gated toward Mini-VLA. The immediate next
+step is not more VQA evaluation; it is to verify that the available nuScenes
+keyframe data can produce valid future ego trajectories.
+
+nuScenes keyframe root on the server:
+
+```text
+/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes
+```
+
+Mini-VLA Phase 1 commands:
+
+```bash
+RUN_NAME=prepare_vla_data_1k \
+NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+TRAIN_SAMPLES=1000 \
+VAL_SAMPLES=100 \
+bash scripts/run_prepare_vla_data.sh
+
+RUN_NAME=check_vla_data_100 \
+INPUT=data/processed_vla/nuscenes_vla_val.jsonl \
+OUT_DIR=reports/vla_data_check_100 \
+LIMIT=100 \
+bash scripts/run_check_vla_data.sh
+```
+
+Return only:
+
+```bash
+cat reports/vla_data_check_100/summary.md
+```
+
+Expected first-pass success criteria:
+
+- `total_rows` should be at least `100`.
+- `valid_parse` should equal `checked_rows`.
+- `missing_images` should be `0`.
+- `roundtrip_ade` and `roundtrip_fde` should be `0`.
+- final distances should look plausible for 3 seconds of ego motion.
+
 Because the server is constrained by file-count quota, do not fully extract
 `data/drivebench_images.zip`. The DriveBench evaluator now supports reading
 images directly from the zip archive.
