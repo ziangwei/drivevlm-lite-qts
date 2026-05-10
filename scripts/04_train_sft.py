@@ -23,7 +23,7 @@ def _message_text(row: dict[str, Any], role: str) -> str:
     return ""
 
 
-class DriveLMSFTDataset(Dataset):
+class VLMSFTDataset(Dataset):
     def __init__(self, path: Path, limit: int = 0):
         rows = read_jsonl(path)
         self.rows = rows[:limit] if limit > 0 else rows
@@ -201,8 +201,8 @@ def main() -> None:
         model = get_peft_model(model, lora_config)
         model.print_trainable_parameters()
 
-    train_dataset = DriveLMSFTDataset(train_file, limit=args.max_train_samples)
-    eval_dataset = DriveLMSFTDataset(eval_file, limit=args.max_eval_samples)
+    train_dataset = VLMSFTDataset(train_file, limit=args.max_train_samples)
+    eval_dataset = VLMSFTDataset(eval_file, limit=args.max_eval_samples)
     collator = VLMDataCollator(processor)
     print(f"train_file={train_file}")
     print(f"eval_file={eval_file}")
@@ -215,7 +215,7 @@ def main() -> None:
     if args.max_train_samples > 0 and len(train_dataset) < args.max_train_samples:
         print(
             "WARNING: requested max train samples is larger than the train JSONL. "
-            "Regenerate data/processed/drivelm_sft_train.jsonl for a larger run."
+            "Regenerate the selected training JSONL for a larger run."
         )
 
     if args.dry_run_collator:

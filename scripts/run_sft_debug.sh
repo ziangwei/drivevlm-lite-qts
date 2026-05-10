@@ -10,6 +10,8 @@ GPU_LOG_PATH="logs/${STAMP}_${RUN_NAME}_gpu.csv"
 CONFIG="${CONFIG:-configs/train/lora_sft.yaml}"
 MODEL="${MODEL:-models/Qwen3-VL-4B-Instruct}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/qwen3vl4b_lora_sft_debug}"
+TRAIN_FILE="${TRAIN_FILE:-}"
+EVAL_FILE="${EVAL_FILE:-}"
 MAX_TRAIN_SAMPLES="${MAX_TRAIN_SAMPLES:-100}"
 MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:-20}"
 DRY_RUN_COLLATOR="${DRY_RUN_COLLATOR:-0}"
@@ -27,6 +29,13 @@ cmd=(
   --max-train-samples "${MAX_TRAIN_SAMPLES}"
   --max-eval-samples "${MAX_EVAL_SAMPLES}"
 )
+
+if [[ -n "${TRAIN_FILE}" ]]; then
+  cmd+=(--train-file "${TRAIN_FILE}")
+fi
+if [[ -n "${EVAL_FILE}" ]]; then
+  cmd+=(--eval-file "${EVAL_FILE}")
+fi
 
 if [[ "${DRY_RUN_COLLATOR}" == "1" ]]; then
   cmd+=(--dry-run-collator)
@@ -71,6 +80,8 @@ fi
   echo "config=${CONFIG}"
   echo "model=${MODEL}"
   echo "output_dir=${OUTPUT_DIR}"
+  echo "train_file=${TRAIN_FILE:-config_default}"
+  echo "eval_file=${EVAL_FILE:-config_default}"
   echo "max_train_samples=${MAX_TRAIN_SAMPLES}"
   echo "max_eval_samples=${MAX_EVAL_SAMPLES}"
   echo "dry_run_collator=${DRY_RUN_COLLATOR}"
