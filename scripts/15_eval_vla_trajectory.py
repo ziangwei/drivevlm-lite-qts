@@ -98,6 +98,15 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _fixed_horizon_prediction(
+    parsed: list[tuple[float, float]],
+    target: list[tuple[float, float]],
+) -> list[tuple[float, float]] | None:
+    if not target or len(parsed) < len(target):
+        return None
+    return parsed[: len(target)]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="models/Qwen3-VL-4B-Instruct")
@@ -138,6 +147,10 @@ def main() -> None:
     fdes: list[float] = []
     parse_ok = 0
     exact_points = 0
+    usable_points = 0
+    underfull_points = 0
+    overfull_points = 0
+    parsed_point_counts = []
     latencies = []
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -170,12 +183,20 @@ def main() -> None:
             clean_up_tokenization_spaces=False,
         )[0].strip()
         parsed = parse_trajectory_text(prediction)
-        row_ade = ade(parsed, target)
-        row_fde = fde(parsed, target)
+        fixed_prediction = _fixed_horizon_prediction(parsed, target)
+        row_ade = ade(fixed_prediction, target) if fixed_prediction is not None else None
+        row_fde = fde(fixed_prediction, target) if fixed_prediction is not None else None
+        parsed_point_counts.append(float(len(parsed)))
         if parsed:
             parse_ok += 1
         if len(parsed) == len(target):
             exact_points += 1
+        if fixed_prediction is not None:
+            usable_points += 1
+        if len(parsed) < len(target):
+            underfull_points += 1
+        if len(parsed) > len(target):
+            overfull_points += 1
         if row_ade is not None:
             ades.append(row_ade)
         if row_fde is not None:
@@ -189,6 +210,9 @@ def main() -> None:
                 "prediction": prediction,
                 "target": target,
                 "parsed": parsed,
+                "fixed_prediction": fixed_prediction,
+                "parsed_point_count": len(parsed),
+                "target_point_count": len(target),
                 "ade": row_ade,
                 "fde": row_fde,
                 "latency_s": latency_s,
@@ -203,6 +227,10 @@ def main() -> None:
         "count": len(predictions),
         "parse_rate": parse_ok / max(1, len(predictions)),
         "exact_point_count_rate": exact_points / max(1, len(predictions)),
+        "usable_point_count_rate": usable_points / max(1, len(predictions)),
+        "underfull_point_count": underfull_points,
+        "overfull_point_count": overfull_points,
+        "avg_parsed_points": _mean(parsed_point_counts),
         "ade": _mean(ades),
         "fde": _mean(fdes),
         "valid_ade_count": len(ades),
@@ -221,11 +249,12 @@ def main() -> None:
     lines = [
         "# VLA Trajectory Evaluation",
         "",
-        "| count | parse rate | exact points | ADE m | FDE m | valid ADE n | avg latency s | avg images |",
-        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| count | parse rate | exact points | usable points | ADE m | FDE m | valid ADE n | avg latency s | avg images |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         (
             f"| {metrics['count']} | {metrics['parse_rate']:.3f} | "
-            f"{metrics['exact_point_count_rate']:.3f} | {metrics['ade']:.3f} | "
+            f"{metrics['exact_point_count_rate']:.3f} | {metrics['usable_point_count_rate']:.3f} | "
+            f"{metrics['ade']:.3f} | "
             f"{metrics['fde']:.3f} | {metrics['valid_ade_count']} | {metrics['avg_latency_s']:.3f} | "
             f"{metrics['avg_images']:.2f} |"
         ),
@@ -235,6 +264,9 @@ def main() -> None:
         f"- input: {args.input}",
         f"- image_mode: {args.image_mode}",
         f"- mismatch_offset: {args.mismatch_offset}",
+        f"- avg_parsed_points: {metrics['avg_parsed_points']:.2f}",
+        f"- underfull_point_count: {metrics['underfull_point_count']}",
+        f"- overfull_point_count: {metrics['overfull_point_count']}",
     ]
     (args.out / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     print(json.dumps(metrics, indent=2))
