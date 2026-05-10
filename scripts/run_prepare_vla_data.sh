@@ -14,6 +14,7 @@ VAL_SAMPLES="${VAL_SAMPLES:-100}"
 FUTURE_STEPS="${FUTURE_STEPS:-6}"
 STEP_SECONDS="${STEP_SECONDS:-0.5}"
 CANDIDATE_MULTIPLIER="${CANDIDATE_MULTIPLIER:-4}"
+SPLIT_STRATEGY="${SPLIT_STRATEGY:-scene}"
 
 {
   echo "run_name=${RUN_NAME}"
@@ -29,6 +30,7 @@ CANDIDATE_MULTIPLIER="${CANDIDATE_MULTIPLIER:-4}"
   echo "future_steps=${FUTURE_STEPS}"
   echo "step_seconds=${STEP_SECONDS}"
   echo "candidate_multiplier=${CANDIDATE_MULTIPLIER}"
+  echo "split_strategy=${SPLIT_STRATEGY}"
   echo
   python scripts/13_prepare_nuscenes_trajectory.py \
     --nuscenes-root "${NUSCENES_ROOT}" \
@@ -38,7 +40,8 @@ CANDIDATE_MULTIPLIER="${CANDIDATE_MULTIPLIER:-4}"
     --val-samples "${VAL_SAMPLES}" \
     --future-steps "${FUTURE_STEPS}" \
     --step-seconds "${STEP_SECONDS}" \
-    --candidate-multiplier "${CANDIDATE_MULTIPLIER}"
+    --candidate-multiplier "${CANDIDATE_MULTIPLIER}" \
+    --split-strategy "${SPLIT_STRATEGY}"
   echo
   wc -l "${OUT_DIR}/nuscenes_vla_train.jsonl"
   wc -l "${OUT_DIR}/nuscenes_vla_val.jsonl"
