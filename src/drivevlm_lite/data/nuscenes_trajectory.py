@@ -33,6 +33,12 @@ class TrajectorySample:
     waypoints: list[tuple[float, float]]
 
 
+@dataclass(frozen=True)
+class TrajectoryBuildResult:
+    samples: list[TrajectorySample]
+    stats: dict[str, int]
+
+
 def _iter_json_array(path: Path):
     decoder = json.JSONDecoder()
     buffer = ""
@@ -88,7 +94,7 @@ def load_nuscenes_tables(
     version: str,
     future_steps: int,
     cameras: tuple[str, ...],
-    sample_limit: int = 0,
+    candidate_limit: int = 0,
     seed: int | None = None,
 ) -> dict[str, Any]:
     samples: dict[str, dict[str, Any]] = {}
@@ -113,8 +119,9 @@ def load_nuscenes_tables(
 
     if seed is not None:
         random.Random(seed).shuffle(candidate_tokens)
-    if sample_limit > 0:
-        candidate_tokens = candidate_tokens[:sample_limit]
+    total_candidate_tokens = len(candidate_tokens)
+    if candidate_limit > 0:
+        candidate_tokens = candidate_tokens[:candidate_limit]
 
     for token in candidate_tokens:
         needed_sample_tokens.add(token)
@@ -155,30 +162,49 @@ def load_nuscenes_tables(
         "candidate_tokens": candidate_tokens,
         "sample_data": sample_data,
         "ego_poses": ego_poses,
+        "stats": {
+            "total_samples": len(samples),
+            "total_candidate_tokens": total_candidate_tokens,
+            "indexed_candidate_tokens": len(candidate_tokens),
+            "needed_sample_data_tokens": len(needed_sample_data_tokens),
+            "indexed_sample_data_tokens": len(sample_data),
+            "needed_pose_tokens": len(needed_pose_tokens),
+            "indexed_pose_tokens": len(ego_poses),
+        },
     }
 
 
-def build_trajectory_samples(
+def build_trajectory_samples_with_stats(
     nuscenes_root: Path,
     version: str = "v1.0-trainval",
     future_steps: int = 6,
     cameras: tuple[str, ...] = DEFAULT_CAMERAS,
     max_missing_images: int = 0,
-    sample_limit: int = 0,
+    candidate_limit: int = 0,
     seed: int | None = None,
-) -> list[TrajectorySample]:
+) -> TrajectoryBuildResult:
     tables = load_nuscenes_tables(
         nuscenes_root,
         version,
         future_steps=future_steps,
         cameras=cameras,
-        sample_limit=sample_limit,
+        candidate_limit=candidate_limit,
         seed=seed,
     )
     samples: dict[str, dict[str, Any]] = tables["samples"]
     candidate_tokens: list[str] = tables["candidate_tokens"]
     sample_data: dict[str, dict[str, Any]] = tables["sample_data"]
     ego_poses: dict[str, dict[str, Any]] = tables["ego_poses"]
+    stats = dict(tables["stats"])
+    stats.update(
+        {
+            "dropped_missing_camera_keys": 0,
+            "dropped_missing_images": 0,
+            "dropped_missing_current_pose": 0,
+            "dropped_missing_future_pose": 0,
+            "valid_trajectory_samples": 0,
+        }
+    )
 
     out: list[TrajectorySample] = []
     for token in candidate_tokens:
@@ -189,6 +215,7 @@ def build_trajectory_samples(
 
         data = sample.get("data", {})
         if not all(camera in data for camera in cameras):
+            stats["dropped_missing_camera_keys"] += 1
             continue
 
         image_paths = []
@@ -204,10 +231,12 @@ def build_trajectory_samples(
                 missing_images += 1
             image_paths.append(str(image_path))
         if missing_images > max_missing_images:
+            stats["dropped_missing_images"] += 1
             continue
 
         current_pose = _pose_for_sample(sample, sample_data, ego_poses)
         if current_pose is None:
+            stats["dropped_missing_current_pose"] += 1
             continue
         future_waypoints = []
         for token in future_tokens:
@@ -218,6 +247,7 @@ def build_trajectory_samples(
             x, y, _ = _global_to_ego(future_pose.translation, current_pose)
             future_waypoints.append((round(x, 3), round(y, 3)))
         if len(future_waypoints) < future_steps:
+            stats["dropped_missing_future_pose"] += 1
             continue
 
         out.append(
@@ -230,7 +260,28 @@ def build_trajectory_samples(
             )
         )
     out.sort(key=lambda item: (item.scene_token, item.timestamp))
-    return out
+    stats["valid_trajectory_samples"] = len(out)
+    return TrajectoryBuildResult(samples=out, stats=stats)
+
+
+def build_trajectory_samples(
+    nuscenes_root: Path,
+    version: str = "v1.0-trainval",
+    future_steps: int = 6,
+    cameras: tuple[str, ...] = DEFAULT_CAMERAS,
+    max_missing_images: int = 0,
+    candidate_limit: int = 0,
+    seed: int | None = None,
+) -> list[TrajectorySample]:
+    return build_trajectory_samples_with_stats(
+        nuscenes_root,
+        version=version,
+        future_steps=future_steps,
+        cameras=cameras,
+        max_missing_images=max_missing_images,
+        candidate_limit=candidate_limit,
+        seed=seed,
+    ).samples
 
 
 def trajectory_answer(waypoints: list[tuple[float, float]], step_seconds: float = 0.5) -> str:

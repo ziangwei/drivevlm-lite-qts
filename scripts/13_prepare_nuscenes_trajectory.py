@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from drivevlm_lite.data.jsonl import write_jsonl
-from drivevlm_lite.data.nuscenes_trajectory import DEFAULT_CAMERAS, build_trajectory_samples, to_sft_row
+from drivevlm_lite.data.nuscenes_trajectory import DEFAULT_CAMERAS, build_trajectory_samples_with_stats, to_sft_row
 
 
 def main() -> None:
@@ -21,18 +21,21 @@ def main() -> None:
     parser.add_argument("--step-seconds", default=0.5, type=float)
     parser.add_argument("--seed", default=2026, type=int)
     parser.add_argument("--max-missing-images", default=0, type=int)
+    parser.add_argument("--candidate-multiplier", default=20, type=int)
     args = parser.parse_args()
 
     total = args.train_samples + args.val_samples
-    samples = build_trajectory_samples(
+    candidate_limit = total * max(1, args.candidate_multiplier) if total > 0 else 0
+    result = build_trajectory_samples_with_stats(
         args.nuscenes_root,
         version=args.version,
         future_steps=args.future_steps,
         cameras=DEFAULT_CAMERAS,
         max_missing_images=args.max_missing_images,
-        sample_limit=total,
+        candidate_limit=candidate_limit,
         seed=args.seed,
     )
+    samples = result.samples
 
     selected = samples[:total] if total > 0 else samples
     val = selected[: args.val_samples]
@@ -49,6 +52,10 @@ def main() -> None:
     print(f"nuscenes_root={args.nuscenes_root}")
     print(f"version={args.version}")
     print(f"loaded_valid_trajectory_samples={len(samples)}")
+    print(f"candidate_multiplier={args.candidate_multiplier}")
+    print(f"candidate_limit={candidate_limit}")
+    for key, value in sorted(result.stats.items()):
+        print(f"stat_{key}={value}")
     print(f"future_steps={args.future_steps}")
     print(f"cameras={','.join(DEFAULT_CAMERAS)}")
     print(f"wrote_train={n_train} -> {train_path}")
