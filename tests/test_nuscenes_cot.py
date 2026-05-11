@@ -40,6 +40,8 @@ def test_build_vla_cot_ablation_files_writes_paired_direct_and_cot_rows(tmp_path
     )
     _write_json(version_dir / "sample_data.json", _sample_data_rows())
     _write_json(version_dir / "ego_pose.json", _ego_pose_rows())
+    _write_json(version_dir / "category.json", [{"token": "cat_car", "name": "vehicle.car"}])
+    _write_json(version_dir / "instance.json", [{"token": "agent1", "category_token": "cat_car"}])
     _write_json(version_dir / "sample_annotation.json", _annotation_rows())
 
     train_input = tmp_path / "train.jsonl"
@@ -59,6 +61,7 @@ def test_build_vla_cot_ablation_files_writes_paired_direct_and_cot_rows(tmp_path
     assert summary["counts"] == {"direct_train": 1, "direct_val": 1, "cot_train": 1, "cot_val": 1}
     assert summary["feature_coverage"]["features"] == 2
     assert summary["feature_coverage"]["ego_speed"] == 2
+    assert summary["feature_coverage"]["front_agent"] == 2
     cot_val = read_jsonl(Path(summary["paths"]["cot_val"]))[0]
     direct_val = read_jsonl(Path(summary["paths"]["direct_val"]))[0]
     assert direct_val["task"] == "vla_trajectory"

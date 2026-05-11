@@ -245,12 +245,13 @@ def _load_front_annotation_candidates(
     version: str,
     sample_tokens: set[str],
 ) -> dict[str, list[dict[str, Any]]]:
+    instance_categories = _load_instance_categories(nuscenes_root, version)
     annotations: dict[str, list[dict[str, Any]]] = {token: [] for token in sample_tokens}
     for row in _iter_json_array(_table_path(nuscenes_root, version, "sample_annotation")):
         sample_token = str(row.get("sample_token", ""))
         if sample_token not in sample_tokens:
             continue
-        category = str(row.get("category_name", "object"))
+        category = str(row.get("category_name") or instance_categories.get(str(row.get("instance_token", ""))) or "object")
         if not _is_relevant_agent(category):
             continue
         annotations[sample_token].append(
@@ -264,6 +265,17 @@ def _load_front_annotation_candidates(
             }
         )
     return annotations
+
+
+def _load_instance_categories(nuscenes_root: Path, version: str) -> dict[str, str]:
+    category_names = {
+        str(row["token"]): str(row.get("name", "object"))
+        for row in _iter_json_array(_table_path(nuscenes_root, version, "category"))
+    }
+    return {
+        str(row["token"]): category_names.get(str(row.get("category_token", "")), "object")
+        for row in _iter_json_array(_table_path(nuscenes_root, version, "instance"))
+    }
 
 
 def _load_annotations_by_token(
