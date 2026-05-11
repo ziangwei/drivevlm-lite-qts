@@ -40,6 +40,44 @@ Expected storage:
 
 - About 4-8 GB after unpacking, depending on expansions.
 
+## Mini-VLA nuScenes Metadata
+
+The Mini-VLA pivot uses an existing nuScenes trainval keyframe tree on the
+server:
+
+```text
+/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes
+```
+
+This folder is not copied or moved. The project reads:
+
+- `v1.0-trainval/sample.json`
+- `v1.0-trainval/sample_data.json`
+- `v1.0-trainval/ego_pose.json`
+- `v1.0-trainval/calibrated_sensor.json`
+- `v1.0-trainval/sensor.json`
+- `samples/CAM_*/*.jpg`
+
+The generated VLA JSONL files store image paths and trajectory labels only. They
+do not duplicate images:
+
+```text
+data/processed_vla_scene/
+  nuscenes_vla_train.jsonl
+  nuscenes_vla_val.jsonl
+```
+
+Each row contains:
+
+- six camera image paths,
+- one user prompt asking for the next 3 seconds of ego trajectory,
+- one assistant answer containing six waypoint tokens,
+- structured `trajectory` metadata for evaluation.
+
+Use `SPLIT_STRATEGY=scene` for train/val splitting. Do not report VLA results
+from a sequential split as final results because neighboring samples from the
+same scene can leak across train and validation.
+
 ## Do Not Download for Version 1
 
 - Full nuScenes.

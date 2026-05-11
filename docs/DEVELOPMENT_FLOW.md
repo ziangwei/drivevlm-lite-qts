@@ -175,7 +175,81 @@ python scripts/07_analyze_drivelm_predictions.py \
   --out-dir reports/e1_drivelm_lora_10k_real_100_analysis
 ```
 
-## 9. Reports and Demo
+## 9. Mini-VLA Pivot
+
+The current main project direction is Mini-VLA trajectory prediction. This uses
+the existing nuScenes keyframe root, but it does not copy images into the repo.
+The data builder reads nuScenes metadata and produces JSONL rows with six camera
+image paths and a trajectory-token answer:
+
+```text
+TRAJ: <t=0.5,x=...,y=...> ... <t=3.0,x=...,y=...>
+```
+
+Prepare a scene-disjoint 1K/100 split:
+
+```bash
+RUN_NAME=prepare_vla_data_1k_scene \
+NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+TRAIN_SAMPLES=1000 \
+VAL_SAMPLES=100 \
+OUT_DIR=data/processed_vla_scene \
+CANDIDATE_MULTIPLIER=4 \
+SPLIT_STRATEGY=scene \
+bash scripts/run_prepare_vla_data.sh
+```
+
+Check it:
+
+```bash
+RUN_NAME=check_vla_1k_scene \
+INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
+OUT_DIR=reports/vla_data_check_1k_scene \
+LIMIT=100 \
+bash scripts/run_check_vla_data.sh
+```
+
+Expected check:
+
+- `valid_parse` equals `checked_rows`.
+- `missing_images` is `0`.
+- `roundtrip_ade` and `roundtrip_fde` are `0`.
+- prepare log includes `scene_overlap=0`.
+
+Train the VLA LoRA:
+
+```bash
+RUN_NAME=vla_scene_lora_1k \
+TRAIN_FILE=data/processed_vla_scene/nuscenes_vla_train.jsonl \
+EVAL_FILE=data/processed_vla_scene/nuscenes_vla_val.jsonl \
+OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_scene_1k \
+MAX_TRAIN_SAMPLES=1000 \
+MAX_EVAL_SAMPLES=100 \
+GRAD_ACCUM=16 \
+NUM_TRAIN_EPOCHS=1 \
+bash scripts/run_sft_debug.sh
+```
+
+Run the final VLA suite:
+
+```bash
+RUN_NAME=vla_scene_final_suite \
+ADAPTER=checkpoints/qwen3vl4b_lora_vla_scene_1k \
+TRAIN=data/processed_vla_scene/nuscenes_vla_train.jsonl \
+INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
+SUITE_DIR=reports/vla_scene_final_suite \
+LIMIT=100 \
+MAX_NEW_TOKENS=192 \
+bash scripts/run_vla_final_suite.sh
+```
+
+The only file needed for result review is:
+
+```text
+reports/vla_scene_final_suite/final_summary.md
+```
+
+## 10. Reports and Demo
 
 Run DriveBench from the image zip without extracting it when project quota or
 file count is tight:
@@ -211,7 +285,7 @@ Run local/server demo:
 python scripts/06_demo.py --model checkpoints/qwen3vl4b_lora_sft
 ```
 
-## 10. Version Control Rules
+## 11. Version Control Rules
 
 Commit code, configs, docs, and small example JSON only.
 

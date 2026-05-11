@@ -622,6 +622,101 @@ python scripts/12_check_drivebench_zip.py \
 ZIP_CONDITION=Clean bash scripts/run_eval_drivebench_zip.sh
 ```
 
+## Current Mini-VLA Status
+
+The project has pivoted from a pure DriveLM VQA / QTS-lite story to a stronger
+Mini-VLA story.
+
+Reason for the pivot:
+
+- DriveLM LoRA improved strict EM, but qualitative checks showed weak
+  fine-grained grounding for object IDs, camera names, coordinates, and long
+  descriptions.
+- More DriveBench-style eval would mostly describe model weakness rather than
+  improve the project contribution.
+- VLA trajectory prediction gives a clearer autonomous-driving target: predict
+  future ego motion, not just text answers.
+
+Data source:
+
+```text
+/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes
+```
+
+The VLA data builder reads nuScenes metadata and image paths from that external
+root. It does not copy images into the repo. It creates:
+
+```text
+data/processed_vla_scene/nuscenes_vla_train.jsonl
+data/processed_vla_scene/nuscenes_vla_val.jsonl
+```
+
+The current validated data split is:
+
+```text
+train samples: 1000
+val samples: 100
+split strategy: scene
+train scenes: 189
+val scenes: 18
+scene overlap: 0
+trajectory horizon: 3 seconds
+waypoints: 6 at 0.5 second intervals
+```
+
+The VLA LoRA checkpoint is:
+
+```text
+checkpoints/qwen3vl4b_lora_vla_scene_1k
+```
+
+Final VLA suite result:
+
+```text
+suite: reports/vla_scene_final_suite/final_summary.md
+
+prior:zero              ADE 9.071, FDE 15.409
+prior:train_mean        ADE 4.524, FDE 8.011
+zero-shot all           parse 0.250, usable 6pt 0.250, ADE 8.800, FDE 14.234
+lora all                parse 1.000, usable 6pt 1.000, ADE 3.313, FDE 5.828
+lora front3             parse 1.000, usable 6pt 1.000, ADE 3.477, FDE 6.155
+lora mismatch all       parse 1.000, usable 6pt 1.000, ADE 6.544, FDE 11.468
+```
+
+Interpretation:
+
+- LoRA adapts Qwen3-VL from weak zero-shot trajectory formatting to stable
+  6-waypoint trajectory output.
+- LoRA all-camera beats the train-mean prior, so it is not merely predicting the
+  average nuScenes trajectory.
+- Mismatched images sharply degrade ADE/FDE, so the model depends on
+  current-scene visual input.
+- Front three cameras nearly match all six cameras, so the VLA setting also
+  supports the visual-input redundancy / QTS-lite efficiency story.
+
+Main caveats:
+
+- The VLA experiment is still small: 1K train / 100 val.
+- It is open-loop ADE/FDE only.
+- The action representation is text trajectory tokens, not a continuous action
+  head.
+- No collision, off-road, map-aware, or closed-loop metrics yet.
+
+Recommended next step if continuing:
+
+```text
+Scale to 5K scene-disjoint VLA data, rerun the same final suite, and compare
+whether ADE/FDE improve while the mismatch-image gap remains.
+```
+
+Recommended next step if preparing a report/interview:
+
+```text
+Lead with the Mini-VLA pivot and use DriveLM VQA as the diagnostic stage that
+motivated it. Present QTS-lite as an efficiency result that becomes more
+meaningful in the VLA setting because trajectory prediction is latency-sensitive.
+```
+
 ## Key References
 
 - Qwen3-VL: https://github.com/QwenLM/Qwen3-VL
