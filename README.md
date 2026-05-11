@@ -143,6 +143,38 @@ Read:
 reports/vla_scene_final_suite/final_summary.md
 ```
 
+## Optional VLA-CoT Data
+
+AutoDrive-R2 / nuScenesR2-style CoT data can be added as annotation JSON only.
+The adapter first checks whether referenced images map to the existing nuScenes
+root, then converts usable rows into the same VLA JSONL schema:
+
+```bash
+mkdir -p data/autodrive_r2
+hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
+  --repo-type dataset \
+  --local-dir data/autodrive_r2
+
+RUN_NAME=inspect_autodrive_r2_json \
+INPUT=data/autodrive_r2/sft_cot.json \
+OUT_DIR=reports/autodrive_r2_json_inspect \
+bash scripts/run_inspect_autodrive_r2_json.sh
+
+RUN_NAME=prepare_autodrive_r2_cot_1k \
+INPUT=data/autodrive_r2/sft_cot.json \
+OUT_DIR=data/processed_vla_cot \
+TRAIN_SAMPLES=1000 \
+VAL_SAMPLES=100 \
+bash scripts/run_prepare_autodrive_r2_cot.sh
+```
+
+Read:
+
+```text
+reports/autodrive_r2_json_inspect/summary.md
+data/processed_vla_cot/summary.md
+```
+
 ## Documentation
 
 - [Project spec](docs/PROJECT_SPEC.md)

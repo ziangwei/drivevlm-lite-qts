@@ -249,7 +249,73 @@ The only file needed for result review is:
 reports/vla_scene_final_suite/final_summary.md
 ```
 
-## 10. Reports and Demo
+## 10. Optional CoT Data Adapter
+
+AutoDrive-R2 style CoT data should be treated as annotation JSON first, not as a
+new image download. Put the downloaded JSON under ignored `data/`, for example:
+
+```bash
+mkdir -p data/autodrive_r2
+hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
+  --repo-type dataset \
+  --local-dir data/autodrive_r2
+```
+
+Expected path:
+
+```text
+data/autodrive_r2/sft_cot.json
+```
+
+Inspect the schema and path compatibility before converting:
+
+```bash
+RUN_NAME=inspect_autodrive_r2_json \
+INPUT=data/autodrive_r2/sft_cot.json \
+OUT_DIR=reports/autodrive_r2_json_inspect \
+NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+LIMIT=200 \
+bash scripts/run_inspect_autodrive_r2_json.sh
+```
+
+The file to return for review is:
+
+```text
+reports/autodrive_r2_json_inspect/summary.md
+```
+
+If the inspect report shows usable trajectory rows and `missing_images` is
+reasonable, convert a small CoT split:
+
+```bash
+RUN_NAME=prepare_autodrive_r2_cot_1k \
+INPUT=data/autodrive_r2/sft_cot.json \
+OUT_DIR=data/processed_vla_cot \
+NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+TRAIN_SAMPLES=1000 \
+VAL_SAMPLES=100 \
+ANSWER_MODE=cot \
+bash scripts/run_prepare_autodrive_r2_cot.sh
+```
+
+Then check the converted validation file:
+
+```bash
+RUN_NAME=check_autodrive_r2_cot_val \
+INPUT=data/processed_vla_cot/autodrive_r2_vla_cot_val.jsonl \
+OUT_DIR=reports/autodrive_r2_cot_check \
+LIMIT=100 \
+bash scripts/run_check_vla_data.sh
+```
+
+Return these two files:
+
+```text
+data/processed_vla_cot/summary.md
+reports/autodrive_r2_cot_check/summary.md
+```
+
+## 11. Reports and Demo
 
 Run DriveBench from the image zip without extracting it when project quota or
 file count is tight:
@@ -285,7 +351,7 @@ Run local/server demo:
 python scripts/06_demo.py --model checkpoints/qwen3vl4b_lora_sft
 ```
 
-## 11. Version Control Rules
+## 12. Version Control Rules
 
 Commit code, configs, docs, and small example JSON only.
 

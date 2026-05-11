@@ -709,6 +709,46 @@ Scale to 5K scene-disjoint VLA data, rerun the same final suite, and compare
 whether ADE/FDE improve while the mismatch-image gap remains.
 ```
 
+Optional CoT extension now has a lightweight adapter:
+
+```text
+src/drivevlm_lite/data/autodrive_r2.py
+scripts/18_inspect_autodrive_r2_json.py
+scripts/19_prepare_autodrive_r2_cot.py
+scripts/run_inspect_autodrive_r2_json.sh
+scripts/run_prepare_autodrive_r2_cot.sh
+```
+
+Use it only after downloading the AutoDrive-R2 / nuScenesR2 annotation JSON,
+for example `data/autodrive_r2/sft_cot.json`. The expected workflow is:
+
+```bash
+mkdir -p data/autodrive_r2
+hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
+  --repo-type dataset \
+  --local-dir data/autodrive_r2
+
+RUN_NAME=inspect_autodrive_r2_json \
+INPUT=data/autodrive_r2/sft_cot.json \
+OUT_DIR=reports/autodrive_r2_json_inspect \
+bash scripts/run_inspect_autodrive_r2_json.sh
+
+RUN_NAME=prepare_autodrive_r2_cot_1k \
+INPUT=data/autodrive_r2/sft_cot.json \
+OUT_DIR=data/processed_vla_cot \
+TRAIN_SAMPLES=1000 \
+VAL_SAMPLES=100 \
+bash scripts/run_prepare_autodrive_r2_cot.sh
+```
+
+The files to inspect or send back are:
+
+```text
+reports/autodrive_r2_json_inspect/summary.md
+data/processed_vla_cot/summary.md
+reports/autodrive_r2_cot_check/summary.md
+```
+
 Recommended next step if preparing a report/interview:
 
 ```text

@@ -78,6 +78,43 @@ Use `SPLIT_STRATEGY=scene` for train/val splitting. Do not report VLA results
 from a sequential split as final results because neighboring samples from the
 same scene can leak across train and validation.
 
+## Optional VLA CoT Annotations
+
+AutoDrive-R2 / nuScenesR2-style data is useful as an optional CoT extension for
+the Mini-VLA branch. The preferred use is to download only the annotation JSON,
+then map its image paths back to the existing nuScenes root above. Do not
+download another nuScenes image copy unless the inspect report shows that the
+JSON references images missing from the existing tree.
+
+Expected ignored layout:
+
+```text
+data/autodrive_r2/
+  sft_cot.json
+data/processed_vla_cot/
+  autodrive_r2_vla_cot_train.jsonl
+  autodrive_r2_vla_cot_val.jsonl
+```
+
+Download the annotation file only:
+
+```bash
+mkdir -p data/autodrive_r2
+hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
+  --repo-type dataset \
+  --local-dir data/autodrive_r2
+```
+
+The adapter supports three answer modes:
+
+- `cot`: train with `<think>...</think><answer>TRAJ...</answer>`.
+- `direct`: train with the final `TRAJ` answer only.
+- `original`: preserve the original assistant answer when possible.
+
+Start with `cot` for a small 1K/100 split, then compare against the current
+direct trajectory-token LoRA. The key check is whether CoT improves ADE/FDE or
+only improves output formatting.
+
 ## Do Not Download for Version 1
 
 - Full nuScenes.
