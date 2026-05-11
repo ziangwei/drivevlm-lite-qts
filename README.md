@@ -143,41 +143,132 @@ Read:
 reports/vla_scene_final_suite/final_summary.md
 ```
 
-## Optional VLA-CoT Data
+## Synthetic CoT VLA Ablation
 
-AutoDrive-R2 / nuScenesR2-style CoT data can be added as annotation JSON only.
-The adapter first checks whether referenced images map to the existing nuScenes
-root, then converts usable rows into the same VLA JSONL schema:
+This is the next reasoning experiment. It keeps the same nuScenes images and
+trajectory labels, then builds two paired training sets from the same rows:
+
+- A / direct: image input -> `TRAJ: ...`
+- B / synthetic CoT: image input -> brief metadata-derived reasoning -> `TRAJ: ...`
+
+The synthetic reasoning uses nuScenes `ego_pose` and `sample_annotation`
+metadata only. It does not copy images and does not depend on an external CoT
+dataset.
+
+Build a 500/100 A-B split:
+
+```bash
+RUN_NAME=build_vla_cot_ablation_500 \
+TRAIN_INPUT=data/processed_vla_scene/nuscenes_vla_train.jsonl \
+VAL_INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
+OUT_DIR=data/processed_vla_cot_ablation_500 \
+TRAIN_SAMPLES=500 \
+VAL_SAMPLES=100 \
+NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+bash scripts/run_build_vla_cot_ablation_data.sh
+```
+
+Return this file for review:
+
+```text
+data/processed_vla_cot_ablation_500/summary.md
+```
+
+If the summary looks sane, train the direct and CoT runs:
+
+```bash
+RUN_NAME=vla_direct_500 \
+TRAIN_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_train.jsonl \
+EVAL_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_val.jsonl \
+OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_direct_500 \
+MAX_TRAIN_SAMPLES=500 \
+MAX_EVAL_SAMPLES=100 \
+GRAD_ACCUM=16 \
+NUM_TRAIN_EPOCHS=1 \
+bash scripts/run_sft_debug.sh
+
+RUN_NAME=vla_cot_500 \
+TRAIN_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_train.jsonl \
+EVAL_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_val.jsonl \
+OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_cot_500 \
+MAX_TRAIN_SAMPLES=500 \
+MAX_EVAL_SAMPLES=100 \
+GRAD_ACCUM=16 \
+NUM_TRAIN_EPOCHS=1 \
+bash scripts/run_sft_debug.sh
+```
+
+Evaluate both:
+
+```bash
+RUN_NAME=eval_vla_direct_500 \
+ADAPTER=checkpoints/qwen3vl4b_lora_vla_direct_500 \
+INPUT=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_val.jsonl \
+OUT=reports/eval_vla_direct_500 \
+LIMIT=100 \
+MAX_NEW_TOKENS=192 \
+bash scripts/run_eval_vla_trajectory.sh
+
+RUN_NAME=eval_vla_cot_500 \
+ADAPTER=checkpoints/qwen3vl4b_lora_vla_cot_500 \
+INPUT=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_val.jsonl \
+OUT=reports/eval_vla_cot_500 \
+LIMIT=100 \
+MAX_NEW_TOKENS=384 \
+bash scripts/run_eval_vla_trajectory.sh
+```
+
+Return only:
+
+```text
+reports/eval_vla_direct_500/summary.md
+reports/eval_vla_cot_500/summary.md
+```
+
+## Optional Reasoning Data
+
+External reasoning data is optional. It should be used only after the synthetic
+CoT A/B test above shows whether reasoning helps the trajectory task.
+
+AutoDrive-R2 / nuScenesR2-style CoT data was checked first, but the observed
+remote repository did not expose the advertised trajectory/CoT JSON files. Do
+not spend more time on it unless the remote file listing changes:
 
 ```bash
 RUN_NAME=list_autodrive_r2_files \
 bash scripts/run_list_autodrive_r2_files.sh
+```
 
-# After checking data/autodrive_r2/remote_files.txt, download the real path,
-# for example:
-# hf download GD-ML/AutoDrive-R2-all-data <REAL_PATH_TO_SFT_COT_JSON> \
-#   --repo-type dataset \
-#   --local-dir data/autodrive_r2
+DriveLMM-o1 is the current practical external reasoning dataset. It is small
+and nuScenes-based, but it is VQA reasoning, not trajectory prediction:
 
-RUN_NAME=inspect_autodrive_r2_json \
-INPUT=data/autodrive_r2/sft_cot.json \
-OUT_DIR=reports/autodrive_r2_json_inspect \
-bash scripts/run_inspect_autodrive_r2_json.sh
+```bash
+mkdir -p data/drivelmm_o1
+hf download ayeshaishaq/DriveLMMo1 \
+  DriveLMMo1_TRAIN.json DriveLMMo1_TEST.json \
+  --repo-type dataset \
+  --local-dir data/drivelmm_o1
 
-RUN_NAME=prepare_autodrive_r2_cot_1k \
-INPUT=data/autodrive_r2/sft_cot.json \
-OUT_DIR=data/processed_vla_cot \
-TRAIN_SAMPLES=1000 \
-VAL_SAMPLES=100 \
-bash scripts/run_prepare_autodrive_r2_cot.sh
+RUN_NAME=prepare_drivelmm_o1 \
+OUT_DIR=data/processed_drivelmm_o1 \
+bash scripts/run_prepare_drivelmm_o1.sh
+
+RUN_NAME=check_drivelmm_o1_val \
+INPUT=data/processed_drivelmm_o1/drivelmm_o1_val.jsonl \
+OUT_DIR=reports/drivelmm_o1_val_check \
+LIMIT=100 \
+bash scripts/run_check_reasoning_sft.sh
 ```
 
 Read:
 
 ```text
-reports/autodrive_r2_json_inspect/summary.md
-data/processed_vla_cot/summary.md
+data/processed_drivelmm_o1/summary.md
+reports/drivelmm_o1_val_check/summary.md
 ```
+
+The intended use is reasoning warmup or reasoning benchmark before returning to
+the Mini-VLA trajectory suite.
 
 ## Documentation
 

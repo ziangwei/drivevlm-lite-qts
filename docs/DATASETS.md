@@ -80,42 +80,74 @@ same scene can leak across train and validation.
 
 ## Optional VLA CoT Annotations
 
-AutoDrive-R2 / nuScenesR2-style data is useful as an optional CoT extension for
-the Mini-VLA branch. The preferred use is to download only the annotation JSON,
-then map its image paths back to the existing nuScenes root above. Do not
-download another nuScenes image copy unless the inspect report shows that the
-JSON references images missing from the existing tree.
+The first CoT experiment should not depend on another dataset. The repo can now
+build a paired direct-vs-CoT ablation from the existing Mini-VLA split:
+
+- `direct`: same prompt and direct `TRAJ: ...` answer.
+- `cot`: brief synthetic reasoning followed by the same `TRAJ: ...` target.
+
+The synthetic reasoning is generated from nuScenes metadata:
+
+- ego speed from neighboring `ego_pose` records,
+- future speed and curve direction from the target waypoints,
+- nearest front agent from `sample_annotation` when available.
+
+This output does not duplicate images.
 
 Expected ignored layout:
 
 ```text
-data/autodrive_r2/
-  sft_cot.json
-data/processed_vla_cot/
-  autodrive_r2_vla_cot_train.jsonl
-  autodrive_r2_vla_cot_val.jsonl
+data/processed_vla_cot_ablation_500/
+  nuscenes_vla_direct_train.jsonl
+  nuscenes_vla_direct_val.jsonl
+  nuscenes_vla_cot_train.jsonl
+  nuscenes_vla_cot_val.jsonl
+  summary.md
 ```
 
-List the remote files first, then download the annotation file only:
+Build it with:
 
 ```bash
-RUN_NAME=list_autodrive_r2_files \
-bash scripts/run_list_autodrive_r2_files.sh
-
-hf download GD-ML/AutoDrive-R2-all-data <REAL_PATH_TO_SFT_COT_JSON> \
-  --repo-type dataset \
-  --local-dir data/autodrive_r2
+RUN_NAME=build_vla_cot_ablation_500 \
+TRAIN_INPUT=data/processed_vla_scene/nuscenes_vla_train.jsonl \
+VAL_INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
+OUT_DIR=data/processed_vla_cot_ablation_500 \
+TRAIN_SAMPLES=500 \
+VAL_SAMPLES=100 \
+bash scripts/run_build_vla_cot_ablation_data.sh
 ```
 
-The adapter supports three answer modes:
+The file to inspect or send back is:
 
-- `cot`: train with `<think>...</think><answer>TRAJ...</answer>`.
-- `direct`: train with the final `TRAJ` answer only.
-- `original`: preserve the original assistant answer when possible.
+```text
+data/processed_vla_cot_ablation_500/summary.md
+```
 
-Start with `cot` for a small 1K/100 split, then compare against the current
-direct trajectory-token LoRA. The key check is whether CoT improves ADE/FDE or
-only improves output formatting.
+AutoDrive-R2 / nuScenesR2-style data was investigated as an external option,
+but the observed remote repository did not expose the advertised trajectory/CoT
+JSON files. Do not use it as the next path unless the remote file listing
+changes.
+
+## Optional DriveLMM-o1 Reasoning Data
+
+DriveLMM-o1 is an external nuScenes-based step-by-step reasoning VQA dataset. It
+contains annotation JSON only in this project setup; images are resolved against
+the existing nuScenes root.
+
+Expected ignored layout:
+
+```text
+data/drivelmm_o1/
+  DriveLMMo1_TRAIN.json
+  DriveLMMo1_TEST.json
+data/processed_drivelmm_o1/
+  drivelmm_o1_train.jsonl
+  drivelmm_o1_val.jsonl
+```
+
+Use it for reasoning warmup or reasoning evaluation. Do not report it as a
+trajectory-planning benchmark, because it does not contain future waypoint
+supervision.
 
 ## Do Not Download for Version 1
 

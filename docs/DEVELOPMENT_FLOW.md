@@ -249,10 +249,116 @@ The only file needed for result review is:
 reports/vla_scene_final_suite/final_summary.md
 ```
 
-## 10. Optional CoT Data Adapter
+## 10. Synthetic CoT VLA Ablation
+
+This is the next controlled experiment. It answers one question:
+
+```text
+Does trajectory-aligned reasoning help ADE/FDE, or does it only make the output longer?
+```
+
+Build paired A/B data from the same 500 train rows and 100 validation rows:
+
+- A: direct trajectory target.
+- B: synthetic reasoning from nuScenes metadata, followed by the same trajectory target.
+
+```bash
+RUN_NAME=build_vla_cot_ablation_500 \
+TRAIN_INPUT=data/processed_vla_scene/nuscenes_vla_train.jsonl \
+VAL_INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
+OUT_DIR=data/processed_vla_cot_ablation_500 \
+NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+TRAIN_SAMPLES=500 \
+VAL_SAMPLES=100 \
+bash scripts/run_build_vla_cot_ablation_data.sh
+```
+
+Return this file first:
+
+```text
+data/processed_vla_cot_ablation_500/summary.md
+```
+
+The summary should show four files with the expected row counts:
+
+```text
+nuscenes_vla_direct_train.jsonl: 500
+nuscenes_vla_direct_val.jsonl: 100
+nuscenes_vla_cot_train.jsonl: 500
+nuscenes_vla_cot_val.jsonl: 100
+```
+
+Train A:
+
+```bash
+RUN_NAME=vla_direct_500 \
+TRAIN_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_train.jsonl \
+EVAL_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_val.jsonl \
+OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_direct_500 \
+MAX_TRAIN_SAMPLES=500 \
+MAX_EVAL_SAMPLES=100 \
+GRAD_ACCUM=16 \
+NUM_TRAIN_EPOCHS=1 \
+bash scripts/run_sft_debug.sh
+```
+
+Train B:
+
+```bash
+RUN_NAME=vla_cot_500 \
+TRAIN_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_train.jsonl \
+EVAL_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_val.jsonl \
+OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_cot_500 \
+MAX_TRAIN_SAMPLES=500 \
+MAX_EVAL_SAMPLES=100 \
+GRAD_ACCUM=16 \
+NUM_TRAIN_EPOCHS=1 \
+bash scripts/run_sft_debug.sh
+```
+
+Evaluate A:
+
+```bash
+RUN_NAME=eval_vla_direct_500 \
+ADAPTER=checkpoints/qwen3vl4b_lora_vla_direct_500 \
+INPUT=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_val.jsonl \
+OUT=reports/eval_vla_direct_500 \
+LIMIT=100 \
+MAX_NEW_TOKENS=192 \
+bash scripts/run_eval_vla_trajectory.sh
+```
+
+Evaluate B:
+
+```bash
+RUN_NAME=eval_vla_cot_500 \
+ADAPTER=checkpoints/qwen3vl4b_lora_vla_cot_500 \
+INPUT=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_val.jsonl \
+OUT=reports/eval_vla_cot_500 \
+LIMIT=100 \
+MAX_NEW_TOKENS=384 \
+bash scripts/run_eval_vla_trajectory.sh
+```
+
+Return only these two files:
+
+```text
+reports/eval_vla_direct_500/summary.md
+reports/eval_vla_cot_500/summary.md
+```
+
+Interpretation:
+
+- If B improves ADE/FDE, scale the CoT setup to 1K or 5K.
+- If B is similar or worse, keep direct VLA as the main branch and use CoT only
+  as analysis, not as the core claim.
+
+## 11. Optional External Reasoning Data
 
 AutoDrive-R2 style CoT data should be treated as annotation JSON first, not as a
-new image download. Put the downloaded JSON under ignored `data/`, for example:
+new image download. In the observed repository, the advertised JSON files were
+not available, so this is not the current next step. List files before assuming
+paths:
 
 ```bash
 RUN_NAME=list_autodrive_r2_files \
@@ -265,69 +371,44 @@ The file to return before downloading anything large is:
 data/autodrive_r2/remote_files.txt
 ```
 
-After checking the real remote path, download only that annotation file. Example:
+DriveLMM-o1 is the practical external reasoning dataset currently available.
+It is small, nuScenes-based, and has manually curated step-by-step VQA answers.
+It should be used as reasoning warmup or a reasoning benchmark, not as ADE/FDE
+trajectory data:
 
 ```bash
-hf download GD-ML/AutoDrive-R2-all-data <REAL_PATH_TO_SFT_COT_JSON> \
+mkdir -p data/drivelmm_o1
+hf download ayeshaishaq/DriveLMMo1 \
+  DriveLMMo1_TRAIN.json DriveLMMo1_TEST.json \
   --repo-type dataset \
-  --local-dir data/autodrive_r2
-```
+  --local-dir data/drivelmm_o1
 
-Expected path:
-
-```text
-data/autodrive_r2/sft_cot.json
-```
-
-Inspect the schema and path compatibility before converting:
-
-```bash
-RUN_NAME=inspect_autodrive_r2_json \
-INPUT=data/autodrive_r2/sft_cot.json \
-OUT_DIR=reports/autodrive_r2_json_inspect \
+RUN_NAME=prepare_drivelmm_o1 \
+TRAIN_INPUT=data/drivelmm_o1/DriveLMMo1_TRAIN.json \
+VAL_INPUT=data/drivelmm_o1/DriveLMMo1_TEST.json \
+OUT_DIR=data/processed_drivelmm_o1 \
 NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-LIMIT=200 \
-bash scripts/run_inspect_autodrive_r2_json.sh
+bash scripts/run_prepare_drivelmm_o1.sh
 ```
 
-The file to return for review is:
-
-```text
-reports/autodrive_r2_json_inspect/summary.md
-```
-
-If the inspect report shows usable trajectory rows and `missing_images` is
-reasonable, convert a small CoT split:
+Check the converted validation data:
 
 ```bash
-RUN_NAME=prepare_autodrive_r2_cot_1k \
-INPUT=data/autodrive_r2/sft_cot.json \
-OUT_DIR=data/processed_vla_cot \
-NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-TRAIN_SAMPLES=1000 \
-VAL_SAMPLES=100 \
-ANSWER_MODE=cot \
-bash scripts/run_prepare_autodrive_r2_cot.sh
-```
-
-Then check the converted validation file:
-
-```bash
-RUN_NAME=check_autodrive_r2_cot_val \
-INPUT=data/processed_vla_cot/autodrive_r2_vla_cot_val.jsonl \
-OUT_DIR=reports/autodrive_r2_cot_check \
+RUN_NAME=check_drivelmm_o1_val \
+INPUT=data/processed_drivelmm_o1/drivelmm_o1_val.jsonl \
+OUT_DIR=reports/drivelmm_o1_val_check \
 LIMIT=100 \
-bash scripts/run_check_vla_data.sh
+bash scripts/run_check_reasoning_sft.sh
 ```
 
 Return these two files:
 
 ```text
-data/processed_vla_cot/summary.md
-reports/autodrive_r2_cot_check/summary.md
+data/processed_drivelmm_o1/summary.md
+reports/drivelmm_o1_val_check/summary.md
 ```
 
-## 11. Reports and Demo
+## 12. Reports and Demo
 
 Run DriveBench from the image zip without extracting it when project quota or
 file count is tight:
@@ -363,7 +444,7 @@ Run local/server demo:
 python scripts/06_demo.py --model checkpoints/qwen3vl4b_lora_sft
 ```
 
-## 12. Version Control Rules
+## 13. Version Control Rules
 
 Commit code, configs, docs, and small example JSON only.
 

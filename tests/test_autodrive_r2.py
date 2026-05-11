@@ -26,7 +26,7 @@ def test_convert_record_builds_cot_vla_row():
 
     assert row is not None
     assert row["sample_id"] == "abc"
-    assert row["images"] == ["/data/nuscenes/samples/CAM_FRONT/frame.jpg"]
+    assert Path(row["images"][0]).as_posix().endswith("/data/nuscenes/samples/CAM_FRONT/frame.jpg")
     assert row["trajectory"][-1] == {"t": 1.0, "x": 2.0, "y": 0.5}
     assert "<think>The road is clear.</think>" in row["messages"][1]["content"]
     assert "TRAJ:" in row["messages"][1]["content"]
