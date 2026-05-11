@@ -353,6 +353,18 @@ Interpretation:
 - If B is similar or worse, keep direct VLA as the main branch and use CoT only
   as analysis, not as the core claim.
 
+Observed 500/100 result:
+
+| run | parse | usable 6pt | ADE m | FDE m | latency s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| direct 500 | 1.000 | 1.000 | 4.548 | 7.788 | 7.548 |
+| synthetic CoT 500 | 1.000 | 1.000 | 6.229 | 10.692 | 12.558 |
+
+Decision: stop this CoT branch for now. The model learns the output format, but
+the longer reasoning answer hurts trajectory accuracy and latency. Do not run
+DriveLMM-o1 warmup as the next experiment unless there is a better
+trajectory-aligned target.
+
 ## 11. Optional External Reasoning Data
 
 AutoDrive-R2 style CoT data should be treated as annotation JSON first, not as a

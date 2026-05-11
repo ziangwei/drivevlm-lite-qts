@@ -225,6 +225,17 @@ reports/eval_vla_direct_500/summary.md
 reports/eval_vla_cot_500/summary.md
 ```
 
+Current result on the 500/100 split:
+
+| run | train | parse | usable 6pt | ADE m | FDE m | latency s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| direct trajectory | 500 | 1.000 | 1.000 | 4.548 | 7.788 | 7.548 |
+| synthetic CoT + trajectory | 500 | 1.000 | 1.000 | 6.229 | 10.692 | 12.558 |
+
+Interpretation: synthetic CoT is a negative result for this setup. It increases
+generation cost and degrades ADE/FDE, so do not scale it or add DriveLMM-o1
+warmup until a better trajectory-aligned reasoning design exists.
+
 ## Optional Reasoning Data
 
 External reasoning data is optional. It should be used only after the synthetic

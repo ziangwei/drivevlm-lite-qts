@@ -795,6 +795,24 @@ reports/eval_vla_direct_500/summary.md
 reports/eval_vla_cot_500/summary.md
 ```
 
+Synthetic CoT 500/100 result:
+
+```text
+direct 500:       parse 1.000, usable 1.000, ADE 4.548, FDE 7.788, latency 7.548s
+synthetic CoT 500: parse 1.000, usable 1.000, ADE 6.229, FDE 10.692, latency 12.558s
+```
+
+Decision:
+
+- Treat synthetic CoT as a useful negative result.
+- It did not improve trajectory prediction; it made ADE/FDE and latency worse.
+- Do not scale this branch.
+- Do not run DriveLMM-o1 warmup next, because this A/B already shows that
+  adding reasoning text can cause negative transfer when the final target is
+  trajectory tokens.
+- The stronger next branch is either scaling direct VLA or adding a controlled
+  past-ego-motion / ego-status ablation.
+
 External reasoning support now has a DriveLMM-o1 adapter:
 
 ```text
