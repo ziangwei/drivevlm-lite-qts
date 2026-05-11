@@ -723,8 +723,10 @@ Use it only after downloading the AutoDrive-R2 / nuScenesR2 annotation JSON,
 for example `data/autodrive_r2/sft_cot.json`. The expected workflow is:
 
 ```bash
-mkdir -p data/autodrive_r2
-hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
+RUN_NAME=list_autodrive_r2_files \
+bash scripts/run_list_autodrive_r2_files.sh
+
+hf download GD-ML/AutoDrive-R2-all-data <REAL_PATH_TO_SFT_COT_JSON> \
   --repo-type dataset \
   --local-dir data/autodrive_r2
 

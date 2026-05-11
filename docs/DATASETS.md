@@ -96,11 +96,13 @@ data/processed_vla_cot/
   autodrive_r2_vla_cot_val.jsonl
 ```
 
-Download the annotation file only:
+List the remote files first, then download the annotation file only:
 
 ```bash
-mkdir -p data/autodrive_r2
-hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
+RUN_NAME=list_autodrive_r2_files \
+bash scripts/run_list_autodrive_r2_files.sh
+
+hf download GD-ML/AutoDrive-R2-all-data <REAL_PATH_TO_SFT_COT_JSON> \
   --repo-type dataset \
   --local-dir data/autodrive_r2
 ```

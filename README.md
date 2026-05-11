@@ -150,10 +150,14 @@ The adapter first checks whether referenced images map to the existing nuScenes
 root, then converts usable rows into the same VLA JSONL schema:
 
 ```bash
-mkdir -p data/autodrive_r2
-hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
-  --repo-type dataset \
-  --local-dir data/autodrive_r2
+RUN_NAME=list_autodrive_r2_files \
+bash scripts/run_list_autodrive_r2_files.sh
+
+# After checking data/autodrive_r2/remote_files.txt, download the real path,
+# for example:
+# hf download GD-ML/AutoDrive-R2-all-data <REAL_PATH_TO_SFT_COT_JSON> \
+#   --repo-type dataset \
+#   --local-dir data/autodrive_r2
 
 RUN_NAME=inspect_autodrive_r2_json \
 INPUT=data/autodrive_r2/sft_cot.json \

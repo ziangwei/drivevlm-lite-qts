@@ -255,8 +255,20 @@ AutoDrive-R2 style CoT data should be treated as annotation JSON first, not as a
 new image download. Put the downloaded JSON under ignored `data/`, for example:
 
 ```bash
-mkdir -p data/autodrive_r2
-hf download ZhenlongYuan/AutoDrive-R2-all-data sft_cot.json \
+RUN_NAME=list_autodrive_r2_files \
+bash scripts/run_list_autodrive_r2_files.sh
+```
+
+The file to return before downloading anything large is:
+
+```text
+data/autodrive_r2/remote_files.txt
+```
+
+After checking the real remote path, download only that annotation file. Example:
+
+```bash
+hf download GD-ML/AutoDrive-R2-all-data <REAL_PATH_TO_SFT_COT_JSON> \
   --repo-type dataset \
   --local-dir data/autodrive_r2
 ```
