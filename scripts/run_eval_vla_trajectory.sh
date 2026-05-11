@@ -11,7 +11,7 @@ ADAPTER="${ADAPTER:-}"
 INPUT="${INPUT:-data/processed_vla/nuscenes_vla_val.jsonl}"
 OUT="${OUT:-reports/vla_eval_100}"
 LIMIT="${LIMIT:-100}"
-MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-96}"
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-192}"
 IMAGE_MODE="${IMAGE_MODE:-all}"
 MISMATCH_OFFSET="${MISMATCH_OFFSET:-17}"
 

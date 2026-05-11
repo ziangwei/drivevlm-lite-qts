@@ -114,7 +114,7 @@ def main() -> None:
     parser.add_argument("--input", default="data/processed_vla/nuscenes_vla_val.jsonl", type=Path)
     parser.add_argument("--out", default="reports/vla_eval", type=Path)
     parser.add_argument("--limit", default=100, type=int)
-    parser.add_argument("--max-new-tokens", default=96, type=int)
+    parser.add_argument("--max-new-tokens", default=192, type=int)
     parser.add_argument("--image-mode", choices=IMAGE_MODES, default="all")
     parser.add_argument("--mismatch-offset", default=17, type=int)
     args = parser.parse_args()
