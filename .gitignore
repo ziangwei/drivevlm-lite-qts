@@ -11,6 +11,9 @@
 /checkpoints/
 /wandb/
 /tmp/
+/experiments/
+/external/
+/notebooks/.ipynb_checkpoints/
 
 # Local interview/dev reflection notes
 /PROJECT_INTERVIEW_LOG.md

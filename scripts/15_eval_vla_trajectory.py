@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from drivevlm_lite.data.jsonl import read_jsonl, write_jsonl
 from drivevlm_lite.data.nuscenes_trajectory import ade, fde, parse_trajectory_text
-from drivevlm_lite.qts import camera_name_from_path
+from drivevlm_lite.camera_selection import camera_name_from_path
 
 
 IMAGE_MODES = ("all", "front3", "front", "none", "mismatch_all", "mismatch_front3", "mismatch_front")

@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from drivevlm_lite.data.jsonl import read_jsonl, write_jsonl
 from drivevlm_lite.eval.metrics import accuracy, exact_match
-from drivevlm_lite.qts import camera_name_from_path, select_images_by_query
+from drivevlm_lite.camera_selection import camera_name_from_path, select_images_by_query
 
 
 def _pixels_from_visual_tokens(tokens: int | None) -> int | None:

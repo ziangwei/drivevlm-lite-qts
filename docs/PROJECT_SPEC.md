@@ -1,105 +1,158 @@
-# Project Spec
+# Project Spec (v1, locked 2026-05-13)
 
-## Objective
+This is the **single source of truth** for the project. If another doc disagrees with this one, this one wins. Update this file only when the v1 scope itself changes.
 
-Build a compact but credible autonomous-driving VLM/VLA project on `Qwen3-VL-4B-Instruct`.
+For running progress, see `docs/PROGRESS.md`.
+For history and design rationale, see `docs/JOURNEY.md`.
 
-The project has two layers:
+## Project in one sentence
 
-1. DriveLM VQA adaptation and efficiency analysis.
-2. Mini-VLA trajectory prediction using nuScenes ego-pose supervision.
+A focused open replication of a driving Vision-Language-Action (VLA) baseline on **Qwen3-VL-4B-Instruct**, evaluated on nuScenes open-loop trajectory prediction, with a rigorous ablation matrix that the reference paper does not provide.
 
-The current main story is the Mini-VLA pivot. DriveLM VQA remains useful as the diagnostic stage that revealed the limits of plain text VQA and motivated moving from text answers to trajectory output.
+## Why this framing
 
-## Main Claim
+- 2026-05 the strongest open driving-VLA reference is Impromptu-VLA (NeurIPS 2025), which builds on Qwen2.5-VL 3B/7B and reports 0.30m L2 on nuScenes.
+- No public work has reproduced this on **Qwen3-VL-4B** (released 2025-10). Filling that gap is a legitimate differentiator that does not require a novel architecture.
+- The project also adds methodology that Impromptu-VLA does not: scene-disjoint splits, ego-status shortcut ablation, off-road / drivable-area metric.
 
-A general multimodal model can be adapted into a lightweight driving VLA prototype with LoRA SFT by representing future ego motion as text trajectory tokens.
+## In scope
 
-The supporting claims are:
+- Base model: Qwen3-VL-4B-Instruct.
+- Dataset: nuScenes trainval (existing server keyframe tree).
+- Task: predict the next 3s ego trajectory (6 waypoints, 0.5s step), text-token output.
+- Training: LoRA SFT via transformers + peft. No model architecture changes in v1.
+- Evaluation: open-loop ADE / FDE / lateral-longitudinal split / per-maneuver / open-loop collision rate / off-road rate (via nuScenes HD map).
+- Reference: Impromptu-VLA prompt format (`nuscenes_train.json`, `nuscenes_test.json`, `prompts.md`) used to align input/output structure. We do **not** use their 80K pretraining dataset in v1.
+- Diagnostic stage (already done): DriveLM VQA LoRA + visual-budget / camera-selection experiments. Kept as the "prequel" of the narrative.
 
-- LoRA makes Qwen3-VL produce stable, parseable 6-waypoint trajectories.
-- The adapted model beats simple trajectory priors on a scene-disjoint validation split.
-- Mismatched-image ablations show that predictions depend on current-scene visual input.
-- Front-camera-only budget reductions keep most trajectory quality, supporting the visual redundancy / QTS-lite efficiency story.
+## Out of scope (explicit)
 
-## In Scope
+- LLaMA-Factory / sglang (Impromptu's stack). We keep our own transformers + peft training code.
+- 80K Impromptu pretraining dataset (only contributes +0.04m L2 in open-loop, not worth the cost).
+- NeuroNCAP / Bench2Drive / CARLA / any closed-loop simulation.
+- DriveBench / CODA-LM / DSBench evaluation.
+- Continuous regression head (text token output is enough for v1).
+- AutoAWQ INT4 quantization + Gradio laptop deployment.
+- Architectural changes to Qwen3-VL (no QTS neural module, no token-selector surgery).
+- Multi-dataset cross-domain training.
 
-- Qwen3-VL-4B-Instruct.
-- DriveLM-nuScenes VQA for baseline adaptation and failure analysis.
-- nuScenes trainval metadata and keyframe images for Mini-VLA trajectory labels.
-- LoRA SFT through `transformers` / `PEFT`.
-- Visual budget and camera-selection ablations.
-- DriveBench reliability evaluation when quota permits, preferably with zip lazy loading.
+## Target numbers (v1 success criteria)
 
-## Out of Scope
+| metric | target |
+| --- | --- |
+| nuScenes scene-disjoint val ADE | 0.5 – 0.8 m |
+| FDE | 1.0 – 1.5 m |
+| open-loop collision rate (GT bbox) | < 1 % |
+| off-road rate (HD map drivable area) | < 5 % |
+| trajectory parse rate | 1.0 |
+| ablation matrix rows | ≥ 7 |
 
-- Full closed-loop driving.
-- CARLA or Bench2Drive integration.
-- Full nuScenes redistribution inside this repo.
-- Large-scale VLA pretraining.
-- Claiming SOTA.
-- Deep Qwen3-VL internal visual-token surgery before the simple camera/budget baselines are exhausted.
+Reference: our previous Mini-VLA was 3.31 / 5.83 m on 1K train / 100 val. Impromptu-VLA Base+nuScenes (Qwen2.5-VL 3B) is 0.34 m L2 average. Our gap to Impromptu mainly comes from base-model difference and absence of their pretraining; closing it to within ~2x is acceptable.
 
-## Experiment Map
+## Seven-stage execution plan
 
-| ID | purpose | data | output |
-| --- | --- | --- | --- |
-| E0 | VQA zero-shot baseline | DriveLM val | strict EM, latency |
-| E1 | VQA LoRA adaptation | DriveLM train/val | checkpoint, EM, qualitative failures |
-| E2 | VQA efficiency | DriveLM val | visual budget and camera-selection tradeoff |
-| E3 | reliability boundary | DriveBench | clean/corruption/text-only metrics |
-| V0 | VLA data validation | nuScenes metadata | 6-waypoint JSONL, round-trip check |
-| V1 | VLA baseline | scene-disjoint nuScenes | zero-shot ADE/FDE |
-| V2 | VLA LoRA | scene-disjoint nuScenes | LoRA ADE/FDE |
-| V3 | VLA ablations | scene-disjoint nuScenes | priors, front3, mismatched images |
+Each stage has a "done" condition. Codex / Claude should only advance when the previous stage's done condition is met. Progress lives in `docs/PROGRESS.md`.
 
-## Validated Results
+### Stage 0 — Repo cleanup (this work)
 
-### DriveLM VQA
+- Archive drivebench / autodrive_r2 scripts to `scripts/archive/`.
+- Move drivelmm_o1 scripts to `scripts/experimental/` (Stage 6 may revisit).
+- Split `qts.py` into `camera_selection.py` (kept) and `experimental/qts_neural.py` (parked).
+- Replace this `PROJECT_SPEC.md`; add `PROGRESS.md` and `JOURNEY.md`.
+- **Done when**: working tree commits cleanly; no Stage 1–6 code touched.
 
-| run | count | result |
-| --- | ---: | --- |
-| Qwen3-VL zero-shot | 100 | strict EM 0.000 |
-| DriveLM LoRA 10K | 100 | strict EM 0.530 |
-| all-camera vtok128 | 500 | strict EM 0.548, latency 0.746s |
-| QTS front max3 | 500 | strict EM 0.538, latency 0.561s |
+### Stage 1 — Reference resource fetch
 
-The VQA result is useful but limited: LoRA learns task format, while fine-grained grounding remains weak.
+Pull only **three text files** from `github.com/ahydchh/Impromptu-VLA`:
+- `nuscenes_train.json`
+- `nuscenes_test.json`
+- `prompts.md`
 
-### Mini-VLA
+Local download is allowed for inspection. Files must **not** be tracked by git (`/data/` is already in `.gitignore`; place locally under `data/external/impromptu_vla/` for inspection only).
 
-Scene-disjoint split, 100 validation samples, fixed 6 future waypoints:
+The final canonical copy lives on the server at `data/external/impromptu_vla/`. Either user uploads from local manually, or runs the download command on the server directly.
 
-| run | ADE m | FDE m |
-| --- | ---: | ---: |
-| zero prior | 9.071 | 15.409 |
-| train-mean prior | 4.524 | 8.011 |
-| Qwen3-VL zero-shot | 8.800 | 14.234 |
-| LoRA all cameras | 3.313 | 5.828 |
-| LoRA front3 | 3.477 | 6.155 |
-| LoRA mismatched images | 6.544 | 11.468 |
+**Skip**: LoRA weight downloads, the 80K Impromptu dataset.
 
-This is the current strongest project result.
+**Done when**: server `data/external/impromptu_vla/` contains the three files; their schema is documented in `docs/JOURNEY.md` under Stage 1.
 
-## Success Criteria
+### Stage 2 — Data pipeline rebuild
 
-- A new user can reproduce the Mini-VLA data check and final suite from documented commands.
-- All training/eval runs write logs and summary files.
-- The project clearly distinguishes adaptation, efficiency, and visual-dependence claims.
-- No datasets, checkpoints, model weights, logs, or reports are committed to Git.
+New script: `scripts/data/prepare_nuscenes_vla.py` (consolidates and supersedes `scripts/13_prepare_nuscenes_trajectory.py`).
 
-## Current Limitations
+Output JSONL per nuScenes keyframe:
+- 6 camera image paths (existing logic from `nuscenes_trajectory.py`).
+- Prompt now includes: past 4 ego positions (1.5s history, in current ego frame) + navigation command (parsed from future scene direction).
+- Assistant answer: same 6-waypoint trajectory text tokens as Impromptu's format.
+- scene-disjoint split kept; full nuScenes train ≈ 28K samples.
 
-- The Mini-VLA run is still small: 1K train / 100 validation samples.
-- Output is text-tokenized trajectory, not a continuous action head.
-- Evaluation is open-loop ADE/FDE only.
-- No collision, off-road, or map-aware metrics yet.
-- VQA grounding remains weak on object IDs, coordinates, and long descriptions.
+`src/drivevlm_lite/data/nuscenes_trajectory.py` extended (not replaced) with prompt-format adapter.
 
-## Best Next Extensions
+**Done when**: a 100-sample sanity batch matches Impromptu's prompt schema and parses correctly.
 
-1. Scale Mini-VLA to 5K scene-disjoint samples.
-2. Add history-aware trajectory input, using past ego motion from metadata.
-3. Compare text trajectory tokens with a small regression head if engineering time permits.
-4. Add simple curvature / speed / lateral-error breakdowns.
-5. Revisit grounding-aware crops for DriveLM object-reference questions if the project needs a VQA-specific improvement.
+### Stage 3 — Training adaptation
+
+New entrypoint: `scripts/train/train_vla.py` (supersedes `04_train_sft.py`).
+
+- Reads new prompt format.
+- LoRA rank 32 (or 64 if memory allows).
+- Default `--num-gpus 1` (single H100). `--num-gpus 2` switches to `torchrun --nproc-per-node 2` for the second H100 when available.
+- 1K smoke test first → full 28K finetune.
+
+**Done when**: full 28K LoRA checkpoint exists; trajectory parse rate on 100 val is 1.0.
+
+### Stage 4 — Baseline evaluation
+
+New entrypoint: `scripts/eval/eval_vla.py` (supersedes `15_eval_vla_trajectory.py`).
+
+- Two val splits: our scene-disjoint 100 val, plus Impromptu's `nuscenes_test.json` for direct comparability.
+- Reports ADE, FDE.
+
+**Done when**: ADE is in `[0.5, 1.0]` m. If higher, debug prompt format and LoRA config before moving on.
+
+### Stage 5 — Methodology layer
+
+On the Stage 4 checkpoint, run the full ablation matrix:
+- three-tier prior baselines (zero / train-mean / train-median)
+- mismatched-image ablation
+- front-3-camera ablation
+- ego-status shortcut ablation (4 rows: vision-only / +past pose / +ego velocity / vision-masked + ego status)
+- lateral / longitudinal ADE split
+- per-maneuver breakdown (straight / left / right / stop)
+- p25 / p50 / p75 / p95 ADE distribution
+
+**Done when**: a single results table is produced with ≥ 7 rows and ego-status shortcut is independently reproduced.
+
+### Stage 6 — Differentiator (choose ONE)
+
+- **A**. off-road rate via nuScenes HD map (preferred for driving credibility)
+- **B**. synthetic CoT supervision (reuses `scripts/23_build_vla_cot_ablation_data.py`)
+- **C**. lightweight trajectory regression head (architecture-layer contribution)
+
+**Done when**: one additional row appended to the Stage 5 table with a clear claim.
+
+### Stage 7 — Report + demo
+
+- `docs/REPORT.md`: four-section narrative (diagnostic → replication → rigor → differentiator).
+- A visualization notebook (BEV plot of GT vs prediction + CoT text if applicable).
+- Optional: arXiv preprint.
+
+**Done when**: a 30-minute talk can be given to someone unfamiliar with the project using only `docs/REPORT.md` and the notebook.
+
+## Workflow constraints
+
+- **Local**: edit code only. No data, no checkpoints, no weights, no logs.
+- **Git remote**: code only.
+- **Server**: pulls from git. Holds all data / weights / runs / logs / outputs.
+- **GPU defaults**: every training and evaluation script takes `--num-gpus` (default 1). The second H100 is usually occupied by another project, so 1-GPU paths must always work without modification.
+- **No AI authorship marks** in commits or code. Code style stays terse and project-consistent.
+
+## Reference numbers (for context, not goals)
+
+| reference | base | data | nuScenes L2 avg | source |
+| --- | --- | --- | --- | --- |
+| Impromptu Base+nuScenes (3B) | Qwen2.5-VL-3B | nuScenes only | 0.34 m | their Table 1 |
+| Impromptu Base+Impromptu+nuScenes (3B) | Qwen2.5-VL-3B | + 80K Impromptu pretrain | 0.30 m | their Table 1 |
+| EMMA+ | proprietary | private + nuScenes | 0.29 m | EMMA paper |
+| Ego-MLP (no vision) | none | ego status only | 0.35 m | Li et al. 2023 |
+| our v1 target | Qwen3-VL-4B | nuScenes only | 0.5 – 0.8 m | this spec |
