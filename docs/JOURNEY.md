@@ -125,9 +125,100 @@ The pitch is not "I built the next driving SOTA". It is: "I diagnosed a misalign
 
 ---
 
-## Appendix A — Stage 1 reference notes
+## Appendix A — Stage 1 reference notes (filled 2026-05-13)
 
-To be filled when Impromptu reference files are retrieved.
+The three Impromptu reference files were downloaded locally to
+`data/external/impromptu_vla/` (gitignored). Sizes: `prompts.md` 8KB,
+`nuscenes_test.json` 13MB, `nuscenes_train.json` 55MB (28,130 samples).
+
+### A.1 What `prompts.md` actually contains
+
+It is **not** the training prompt template. It is the set of prompts used
+to generate the original Impromptu QA dataset from raw driving footage —
+i.e. labeling instructions for an upstream VLM annotator. Useful as
+context for how their 80K dataset was built, but **not** directly used at
+training time.
+
+### A.2 The real training prompt schema (from `nuscenes_train.json`)
+
+Every sample is `{"id", "images", "messages"}`. Critical surprises:
+
+- **Single image, front camera only.** All 28,130 samples have
+  `len(images) == 1` and the image is always
+  `nuscenes/samples/CAM_FRONT/...jpg`. They **do not use the 6-camera
+  surround view**. This is fundamentally different from our previous
+  Mini-VLA setup (which fed 6 cameras).
+- **Heavy ego-status input.** The user message includes, for each
+  past timestep at 0.5s spacing from `t-3.0s` to `t=0.0s`:
+  - past ego position `(x, y)` in current ego frame,
+  - acceleration `(X, Y)` in m/s²,
+  - **velocity in m/s**,
+  - steering angle (sign-encoded: positive = left turn).
+- **No explicit navigation command.** The user message ends with the past
+  ego status; there is no `FORWARD/LEFT/RIGHT` token. Intent is supposed
+  to be inferred from the image and the past-motion sequence.
+- **Output token format**:
+
+  ```text
+  <PLANNING>Predicted future movement details ... The output is formatted as [x, y]: [x1, y1], [x2, y2], ..., [x6, y6]</PLANNING>
+  ```
+
+  6 waypoints, 0.5s spacing, 3s horizon, two decimal places, comma-space
+  delimited, wrapped in `<PLANNING>...</PLANNING>` tags.
+
+### A.3 Example: a turning-vehicle sample (id `40599f85...`)
+
+```text
+USER: You are an autonomous driving agent. You have access to a front view
+camera image of a vehicle <image>. ... predict future waypoints ...
+the previous ego vehicle status recorded over the last 3.0 seconds ...
+(t-3.0s) [-12.53, 0.74], Acceleration: X 0.96, Y 0.49 m/s^2,
+Velocity: 3.21 m/s, Steering angle: 2.42 (positive: left turn, ...),
+(t-2.5s) [-10.78, 0.57], Acceleration: ..., Velocity: 3.62 m/s, ...
+...
+(t-0.0s) [0.0, 0.0], Acceleration: X -0.36, Y -0.02 m/s^2,
+Velocity: 4.24 m/s, Steering angle: 0.85 ...
+
+ASST: <PLANNING>... [x, y]: [2.15, 0.09], [3.8, 0.27], [5.86, 0.67],
+[7.93, 1.28], [9.92, 2.17], [11.77, 3.42]</PLANNING>
+```
+
+### A.4 What this means for v1
+
+The 0.34 m L2 in Impromptu's table 1 (`Base+nuScenes`) is **not a
+vision-only number**. It is achieved with full ego status (position +
+velocity + acceleration + steering) in the prompt and a single front
+camera. Earlier comparisons that treated 3.31 m (our 6-cam, no-ego-status
+Mini-VLA) as "10x worse than the same task" were apples-to-oranges.
+
+Implications:
+
+1. The previous "vision-only purity" worry now has a clear referent —
+   Impromptu is the opposite of vision-only. Vision-only on the same
+   benchmark would be a genuine differentiator, not a defensive framing.
+2. The ego-status shortcut ablation matrix becomes the central
+   contribution: matching their setup first, then peeling off each
+   ego-state field to expose how much of the 0.34 m comes from
+   ego-status fit vs visual reasoning.
+3. The "1 cam vs 6 cam" axis becomes a separate ablation worth running:
+   our prior surround-camera setup is more information-rich than theirs,
+   but their single-front-cam setup is the comparable benchmark.
+4. Trajectory output format needs to switch from our `<t=,x=,y=>` tokens
+   to the `<PLANNING>...[x, y]: [...]</PLANNING>` block so numbers are
+   directly comparable on their test split.
+
+### A.5 Decisions locked from this finding
+
+- Stage 2 data pipeline supports the Impromptu prompt schema verbatim
+  (single front cam + full ego status sequence + `<PLANNING>` output).
+- Stage 5 ablation matrix gains four new rows:
+  - 1-cam + full ego status (replicate Impromptu)
+  - 1-cam + position-only ego history
+  - 1-cam + no ego status (vision-only)
+  - 6-cam + no ego status (our previous setup, comparable)
+- v1 target ADE on scene-disjoint val is **revised to 0.4 – 0.7 m** at
+  the "1-cam + full ego status" cell, with vision-only cells expected
+  in the 1.5 – 3.0 m range.
 
 ## Appendix B — Ablation matrix snapshot
 

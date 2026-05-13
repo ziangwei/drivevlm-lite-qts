@@ -6,7 +6,8 @@ information into the kept tokens via cross-attention.
 
 It was never integrated into Qwen3-VL training or evaluation in v1. The
 "QTS-lite" results in earlier experiments came from rule-based camera
-selection (`drivevlm_lite.camera_selection`), not from this module.
+selection (now inlined in ``scripts/09_eval_drivelm_qts_input.py``), not
+from this module.
 
 Kept here so the architectural idea is not lost. If a v2 pass wants to add
 a learned token selector, this is the starting point.

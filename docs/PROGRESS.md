@@ -10,12 +10,12 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 
 | stage | status | next action |
 | --- | --- | --- |
-| 0. Repo cleanup | in progress | finish moves and commit |
-| 1. Reference resource fetch | pending | download 3 Impromptu text files |
-| 2. Data pipeline rebuild | pending | write `prepare_nuscenes_vla.py` |
+| 0. Repo cleanup | completed | — |
+| 1. Reference resource fetch | completed | files at `data/external/impromptu_vla/`, schema in JOURNEY §A |
+| 2. Data pipeline rebuild | pending | write `prepare_nuscenes_vla.py` (Impromptu-schema, single CAM_FRONT, full ego status) |
 | 3. Training adaptation | pending | port `04_train_sft.py` |
 | 4. Baseline evaluation | pending | dual-split eval |
-| 5. Methodology layer | pending | ablation matrix |
+| 5. Methodology layer | pending | ablation matrix (now 11+ rows) |
 | 6. Differentiator (choose A/B/C) | pending | decision after Stage 5 |
 | 7. Report + demo | pending | last |
 
@@ -23,7 +23,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 
 ## Stage 0 — Repo cleanup
 
-**Status**: in progress (2026-05-13)
+**Status**: completed (2026-05-13)
 
 **Goal**: lock the v1 scope into docs; archive code that does not belong to the new pipeline; do not touch Stage 1–6 logic yet.
 
@@ -46,26 +46,33 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 
 ## Stage 1 — Reference resource fetch
 
-**Status**: pending
+**Status**: completed (2026-05-13)
 
-**Goal**: get Impromptu-VLA's three reference text files on the server so Stage 2 can mirror their prompt schema.
+**Outputs**:
+- `data/external/impromptu_vla/prompts.md` (8 KB)
+- `data/external/impromptu_vla/nuscenes_test.json` (13 MB, 6 020 samples expected)
+- `data/external/impromptu_vla/nuscenes_train.json` (55 MB, 28 130 samples)
+- Schema documented in `docs/JOURNEY.md` Appendix A.
 
-**Plan**:
-- Local download (allowed for inspection):
-  - `https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/nuscenes_train.json`
-  - `https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/nuscenes_test.json`
-  - `https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/prompts.md`
-- Either user uploads from local to server, or runs `wget` / `curl` on the server directly into `data/external/impromptu_vla/`.
-- All three files are excluded from git by the `/data/` rule in `.gitignore`.
-- Skip: LoRA weight downloads (`ImpromptuVLAModel/*`), the 80K dataset (`aaaaaap/unstructed`).
+**Server-side download command** (if files are not already there):
 
-**Documentation requirement**: once retrieved, append a "Impromptu prompt format" sub-section to `docs/JOURNEY.md` summarizing:
-- one representative `nuscenes_train.json` entry,
-- the past-ego-pose encoding style,
-- the navigation command encoding style,
-- the trajectory output token format.
+```bash
+mkdir -p data/external/impromptu_vla
+cd data/external/impromptu_vla
+curl -sSL -O https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/prompts.md
+curl -sSL -O https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/nuscenes_test.json
+curl -sSL -O https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/nuscenes_train.json
+```
 
-**Done when**: server contains the three files at `data/external/impromptu_vla/`, and their schema notes are in JOURNEY.md.
+**Surprises** (full detail in JOURNEY §A):
+- Impromptu uses **single CAM_FRONT**, not 6 cameras.
+- Their prompt includes **velocity / acceleration / steering** — heavy ego status.
+- Their 0.34 m L2 number is not vision-only. This reframes our previous 3.31 m as a different task, not "10x worse".
+
+**Decisions locked from Stage 1**:
+- v1 mirrors the Impromptu prompt schema verbatim.
+- Stage 5 ablation matrix grows to ≥ 11 rows including 1-cam vs 6-cam and ego-status peeling.
+- v1 target ADE revised to **0.4 – 0.7 m** at the "1-cam + full ego status" cell; vision-only cells expected at 1.5 – 3.0 m.
 
 ---
 
@@ -169,4 +176,5 @@ Three options (pick one):
 
 Append every notable scope or methodology decision here (newest on top).
 
-- **2026-05-13** Locked v1 spec; archived drivebench / autodrive_r2; deprioritized neural QTS module; chose Impromptu-style prompt format as the replication target.
+- **2026-05-13** Stage 1 reveals Impromptu uses single CAM_FRONT + full ego status (velocity/accel/steering). v1 target revised to 0.4 – 0.7 m at the matched cell; vision-only becomes a deliberate ablation row, not the main number.
+- **2026-05-13** Stage 0 cleanup: locked v1 spec; archived drivebench / autodrive_r2; deprioritized neural QTS module; trimmed `qts.py` → `camera_utils.py` (camera-name util only); chose Impromptu-style prompt format as the replication target.

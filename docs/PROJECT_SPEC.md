@@ -36,18 +36,24 @@ A focused open replication of a driving Vision-Language-Action (VLA) baseline on
 - Architectural changes to Qwen3-VL (no QTS neural module, no token-selector surgery).
 - Multi-dataset cross-domain training.
 
-## Target numbers (v1 success criteria)
+## Target numbers (v1 success criteria, revised 2026-05-13 after Stage 1)
 
 | metric | target |
 | --- | --- |
-| nuScenes scene-disjoint val ADE | 0.5 – 0.8 m |
-| FDE | 1.0 – 1.5 m |
+| nuScenes scene-disjoint val ADE (matched cell: 1 cam + full ego status) | 0.4 – 0.7 m |
+| ADE vision-only cell (1 cam, no ego status) | 1.5 – 3.0 m |
+| FDE (matched cell) | 0.8 – 1.4 m |
 | open-loop collision rate (GT bbox) | < 1 % |
 | off-road rate (HD map drivable area) | < 5 % |
 | trajectory parse rate | 1.0 |
-| ablation matrix rows | ≥ 7 |
+| ablation matrix rows | ≥ 11 |
 
-Reference: our previous Mini-VLA was 3.31 / 5.83 m on 1K train / 100 val. Impromptu-VLA Base+nuScenes (Qwen2.5-VL 3B) is 0.34 m L2 average. Our gap to Impromptu mainly comes from base-model difference and absence of their pretraining; closing it to within ~2x is acceptable.
+After Stage 1 we know Impromptu uses **single CAM_FRONT + full ego status (velocity, acceleration, steering)**, not 6 cameras and not vision-only. Their 0.34 m L2 is a shortcut-heavy number. Our v1 reports two cells side-by-side: the matched cell (replicates their setup) and the vision-only cell (the genuine differentiator). The methodology gain is the matrix between them.
+
+Reference points for context (not goals):
+- Our previous Mini-VLA: 3.31 m / 5.83 m on 1K train / 100 val, **6 cameras and no ego status** — not directly comparable.
+- Impromptu Base+nuScenes (Qwen2.5-VL 3B): 0.34 m L2 with single CAM_FRONT + full ego status.
+- Ego-MLP (no vision, just ego status): 0.35 m on standard nuScenes — confirms most of the 0.34 m is shortcut.
 
 ## Seven-stage execution plan
 
