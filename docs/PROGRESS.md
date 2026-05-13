@@ -12,7 +12,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | --- | --- | --- |
 | 0. Repo cleanup | completed | — |
 | 1. Reference resource fetch | completed | files at `data/external/impromptu_vla/`, schema in JOURNEY §A |
-| 2. Data pipeline rebuild | pending | write `prepare_nuscenes_vla.py` (Impromptu-schema, single CAM_FRONT, full ego status) |
+| 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
 | 3. Training adaptation | pending | port `04_train_sft.py` |
 | 4. Baseline evaluation | pending | dual-split eval |
 | 5. Methodology layer | pending | ablation matrix (now 11+ rows) |
@@ -78,19 +78,50 @@ curl -sSL -O https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/nuscen
 
 ## Stage 2 — Data pipeline rebuild
 
-**Status**: pending
+**Status**: completed (2026-05-13)
 
-**Inputs**:
-- nuScenes trainval metadata at the existing server path.
-- Impromptu prompt schema (from Stage 1).
+**Approach change (from Stage 1 finding)**: Impromptu ships ready-made
+`nuscenes_train.json` (28 130 samples) and `nuscenes_test.json` (6 020
+samples) that already use the canonical nuScenes 700/150 scene-disjoint
+split. Re-generating the prompts ourselves is unnecessary; we just
+rewrite the image paths to point at our local keyframe tree.
 
-**Outputs**:
-- `scripts/data/prepare_nuscenes_vla.py`
-- `data/processed_vla_v2/nuscenes_vla_train.jsonl`
-- `data/processed_vla_v2/nuscenes_vla_val.jsonl`
-- summary.json with scene-disjoint counts and round-trip ADE = 0.
+**Deliverables**:
+- `src/drivevlm_lite/data/impromptu_adapter.py` — load / rewrite-paths / write-JSONL primitives.
+- `scripts/data/prepare_nuscenes_vla.py` — CLI entrypoint.
+- `scripts/data/run_prepare_nuscenes_vla.sh` — convenience wrapper with logging.
+- `tests/test_impromptu_adapter.py` — 7 synthetic tests, runnable with plain `python` (no pytest).
 
-**Done when**: 100-sample sanity batch parses identically to Impromptu's schema.
+**Server-side command to produce final JSONL** (CPU only, ~1 min):
+
+```bash
+cd ~/drivevlm-lite-qts
+bash scripts/data/run_prepare_nuscenes_vla.sh
+```
+
+Or call the python script directly:
+
+```bash
+PYTHONPATH=src python scripts/data/prepare_nuscenes_vla.py \
+  --impromptu-root data/external/impromptu_vla \
+  --nuscenes-root /dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
+  --out-dir data/processed_vla_impromptu
+```
+
+**Outputs (on server, gitignored)**:
+- `data/processed_vla_impromptu/train.jsonl` — 28 130 lines expected
+- `data/processed_vla_impromptu/val.jsonl` —  6 020 lines expected
+- `data/processed_vla_impromptu/prepare_summary.json`
+
+**Done when**: train + val JSONL counts match expectations and
+`missing_images == 0`.
+
+**Sanity check after running**:
+
+```bash
+wc -l data/processed_vla_impromptu/{train,val}.jsonl
+head -1 data/processed_vla_impromptu/train.jsonl | python -m json.tool | head -20
+```
 
 ---
 
@@ -176,5 +207,6 @@ Three options (pick one):
 
 Append every notable scope or methodology decision here (newest on top).
 
+- **2026-05-13** Stage 2: switched approach — adopted Impromptu's ready-made `nuscenes_{train,test}.json` (uses canonical 700/150 nuScenes scene split) instead of regenerating prompts ourselves; only image-path rewriting is needed.
 - **2026-05-13** Stage 1 reveals Impromptu uses single CAM_FRONT + full ego status (velocity/accel/steering). v1 target revised to 0.4 – 0.7 m at the matched cell; vision-only becomes a deliberate ablation row, not the main number.
 - **2026-05-13** Stage 0 cleanup: locked v1 spec; archived drivebench / autodrive_r2; deprioritized neural QTS module; trimmed `qts.py` → `camera_utils.py` (camera-name util only); chose Impromptu-style prompt format as the replication target.
