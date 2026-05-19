@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Train the Impromptu-format VLA LoRA on Qwen3-VL-4B.
-# Defaults to a single GPU. Pass NUM_GPUS=2 to use torchrun on two GPUs.
+# Defaults to a single GPU (pinned to device 0). Pass NUM_GPUS=2 to use
+# torchrun on two GPUs.
+#
+# Important: HF Trainer auto-enables DataParallel when it sees >1 visible
+# GPU, and Qwen3-VL's vision module breaks under DataParallel. For
+# single-GPU runs we therefore force CUDA_VISIBLE_DEVICES=0 so the Trainer
+# never tries to wrap the model in DataParallel.
 set -euo pipefail
 
 mkdir -p logs
@@ -12,6 +18,7 @@ CONFIG="${CONFIG:-configs/train/impromptu_lora.yaml}"
 MAX_TRAIN="${MAX_TRAIN:-0}"
 MAX_EVAL="${MAX_EVAL:-0}"
 NUM_GPUS="${NUM_GPUS:-1}"
+GPU_ID="${GPU_ID:-0}"
 EXTRA_ARGS=("${@:-}")
 
 PY_ARGS=(scripts/04_train_sft.py
@@ -25,8 +32,10 @@ fi
 
 if [[ "${NUM_GPUS}" -gt 1 ]]; then
   LAUNCH=(torchrun --standalone --nproc-per-node="${NUM_GPUS}")
+  unset CUDA_VISIBLE_DEVICES_OVERRIDE
 else
   LAUNCH=(python)
+  CUDA_VISIBLE_DEVICES_OVERRIDE="${GPU_ID}"
 fi
 
 {
@@ -39,7 +48,12 @@ fi
   echo "max_train=${MAX_TRAIN}"
   echo "max_eval=${MAX_EVAL}"
   echo "num_gpus=${NUM_GPUS}"
+  echo "gpu_id=${GPU_ID}"
   echo "launcher=${LAUNCH[*]}"
+  if [[ -n "${CUDA_VISIBLE_DEVICES_OVERRIDE:-}" ]]; then
+    echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES_OVERRIDE}"
+    export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES_OVERRIDE}"
+  fi
   echo
   PYTHONPATH=src "${LAUNCH[@]}" "${PY_ARGS[@]}"
 } 2>&1 | tee "${LOG_PATH}"
