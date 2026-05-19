@@ -73,31 +73,47 @@ class VLMDataCollator:
         return messages
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
-        if len(features) != 1:
-            raise ValueError("This first SFT implementation expects per_device_train_batch_size=1.")
+        if not features:
+            raise ValueError("Empty batch.")
 
-        feature = features[0]
-        images = self._load_images(feature["images"])
-        full_messages = self._messages(feature["question"], feature["answer"], images, add_answer=True)
-        prompt_messages = self._messages(feature["question"], None, images, add_answer=False)
+        # New transformers (>=4.46) may pass multiple samples to the collator at
+        # once for proper loss normalisation across gradient accumulation steps,
+        # even when per_device_train_batch_size=1. We therefore process each
+        # feature independently and rely on the processor's batched tokenizer
+        # padding to assemble the final tensors.
+        per_sample_full_texts: list[str] = []
+        per_sample_prompt_lens: list[int] = []
+        all_images: list[Image.Image] = []
+        for feature in features:
+            images = self._load_images(feature["images"])
+            full_messages = self._messages(feature["question"], feature["answer"], images, add_answer=True)
+            prompt_messages = self._messages(feature["question"], None, images, add_answer=False)
 
-        full_text = self.processor.apply_chat_template(
-            full_messages,
-            tokenize=False,
-            add_generation_prompt=False,
+            full_text = self.processor.apply_chat_template(
+                full_messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+            prompt_text = self.processor.apply_chat_template(
+                prompt_messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompt_inputs = self.processor(text=[prompt_text], images=images, return_tensors="pt")
+            per_sample_full_texts.append(full_text)
+            per_sample_prompt_lens.append(int(prompt_inputs["input_ids"].shape[1]))
+            all_images.extend(images)
+
+        full_inputs = self.processor(
+            text=per_sample_full_texts,
+            images=all_images,
+            return_tensors="pt",
+            padding=True,
         )
-        prompt_text = self.processor.apply_chat_template(
-            prompt_messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-
-        full_inputs = self.processor(text=[full_text], images=images, return_tensors="pt")
-        prompt_inputs = self.processor(text=[prompt_text], images=images, return_tensors="pt")
 
         labels = full_inputs["input_ids"].clone()
-        prompt_len = prompt_inputs["input_ids"].shape[1]
-        labels[:, :prompt_len] = -100
+        for row_idx, prompt_len in enumerate(per_sample_prompt_lens):
+            labels[row_idx, :prompt_len] = -100
         if "attention_mask" in full_inputs:
             labels[full_inputs["attention_mask"] == 0] = -100
 
@@ -184,6 +200,10 @@ def main() -> None:
     processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
     if processor.tokenizer.pad_token is None:
         processor.tokenizer.pad_token = processor.tokenizer.eos_token
+    # Train-time padding must be on the right so prompt-prefix label masking
+    # (computed against unpadded prompt lengths) lines up with the batched
+    # full-sequence tensors.
+    processor.tokenizer.padding_side = "right"
 
     dtype = torch.bfloat16 if torch.cuda.is_available() and config.get("bf16", True) else torch.float32
     model = AutoModelForImageTextToText.from_pretrained(
