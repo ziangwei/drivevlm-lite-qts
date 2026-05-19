@@ -13,7 +13,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 0. Repo cleanup | completed | — |
 | 1. Reference resource fetch | completed | files at `data/external/impromptu_vla/`, schema in JOURNEY §A |
 | 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
-| 3. Training adaptation | pending | port `04_train_sft.py` |
+| 3. Training adaptation | in progress | smoke test 100 samples, then full 28K run |
 | 4. Baseline evaluation | pending | dual-split eval |
 | 5. Methodology layer | pending | ablation matrix (now 11+ rows) |
 | 6. Differentiator (choose A/B/C) | pending | decision after Stage 5 |
@@ -127,18 +127,48 @@ head -1 data/processed_vla_impromptu/train.jsonl | python -m json.tool | head -2
 
 ## Stage 3 — Training adaptation
 
-**Status**: pending
+**Status**: in progress (2026-05-13)
 
-**Inputs**: Stage 2 JSONL files; Qwen3-VL-4B base weights at `models/Qwen3-VL-4B-Instruct/`.
+**Approach**: reuse the existing `scripts/04_train_sft.py` with one
+backward-compatible tweak (accept `id` field in addition to `sample_id`).
+Add a new YAML config and a launcher shell script that supports
+`NUM_GPUS={1,2}`.
 
-**Outputs**:
-- `scripts/train/train_vla.py` with `--num-gpus` flag (default 1).
-- `checkpoints/qwen3vl4b_lora_vla_v2/`.
+**Inputs**:
+- Stage 2 JSONL files at `data/processed_vla_impromptu/`.
+- Qwen3-VL-4B base weights at `models/Qwen3-VL-4B-Instruct/`.
 
-**Smoke test target**: parse rate 1.0 on 1K train / 100 val after the smoke run.
-**Full target**: 28K LoRA trained, parse rate 1.0.
+**Deliverables**:
+- `scripts/04_train_sft.py` — minor edit: `id` field fallback in `VLMSFTDataset`.
+- `configs/train/impromptu_lora.yaml` — LoRA rank 32, alpha 64, 2 epochs, lr 1e-4, bs 1 with grad-accum 16.
+- `scripts/train/run_train_vla.sh` — single-GPU by default, `NUM_GPUS=2 bash ...` switches to torchrun.
 
-**Done when**: full checkpoint produced.
+**Smoke test (server, single H100, ~10-20 min)**:
+
+```bash
+MAX_TRAIN=100 MAX_EVAL=20 RUN_NAME=smoke_vla bash scripts/train/run_train_vla.sh
+```
+
+Success means: loss decreases (not NaN), checkpoint saved under
+`checkpoints/qwen3vl4b_lora_impromptu_v1/`, the trainer's `dry-run-collator`
+check passes if run separately.
+
+**Full run (single H100, ~1-2 days)**:
+
+```bash
+RUN_NAME=full_vla bash scripts/train/run_train_vla.sh
+```
+
+Or with two H100s:
+
+```bash
+NUM_GPUS=2 RUN_NAME=full_vla bash scripts/train/run_train_vla.sh
+```
+
+**Smoke target**: parse rate 1.0 on 20 eval samples after a short run.
+**Full target**: parse rate 1.0; loss < 0.5 by end of training.
+
+**Done when**: full checkpoint produced and eval parse rate is 1.0.
 
 ---
 
@@ -207,6 +237,7 @@ Three options (pick one):
 
 Append every notable scope or methodology decision here (newest on top).
 
+- **2026-05-13** Stage 3 starts: reuse existing 04_train_sft.py with one-line change (`id` fallback) + new YAML config + GPU-aware launcher. No model architecture changes.
 - **2026-05-13** Stage 2: switched approach — adopted Impromptu's ready-made `nuscenes_{train,test}.json` (uses canonical 700/150 nuScenes scene split) instead of regenerating prompts ourselves; only image-path rewriting is needed.
 - **2026-05-13** Stage 1 reveals Impromptu uses single CAM_FRONT + full ego status (velocity/accel/steering). v1 target revised to 0.4 – 0.7 m at the matched cell; vision-only becomes a deliberate ablation row, not the main number.
 - **2026-05-13** Stage 0 cleanup: locked v1 spec; archived drivebench / autodrive_r2; deprioritized neural QTS module; trimmed `qts.py` → `camera_utils.py` (camera-name util only); chose Impromptu-style prompt format as the replication target.

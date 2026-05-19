@@ -33,8 +33,13 @@ class VLMSFTDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         row = self.rows[idx]
+        # Older DriveLM JSONL used ``sample_id``; the Impromptu-format JSONL uses ``id``.
+        # Accept either so the same trainer can read both formats.
+        sample_id = row.get("sample_id")
+        if sample_id is None:
+            sample_id = row.get("id")
         return {
-            "sample_id": row.get("sample_id"),
+            "sample_id": sample_id,
             "images": row.get("images", []),
             "question": _message_text(row, "user"),
             "answer": _message_text(row, "assistant"),
