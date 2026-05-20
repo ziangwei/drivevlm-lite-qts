@@ -1,69 +1,60 @@
 # DriveVLM-Lite-QTS
 
-DriveVLM-Lite-QTS is a compact autonomous-driving VLM research project built around `Qwen3-VL-4B-Instruct`.
+An open replication of a driving Vision-Language-Action (VLA) baseline on **Qwen3-VL-4B-Instruct**, evaluated on nuScenes open-loop trajectory prediction. The repository's `qts` suffix is a legacy label from earlier design iterations and is no longer load-bearing; the v1 pipeline is a clean Qwen3-VL replication on Impromptu-VLA's nuScenes setup with an additional methodology layer.
 
-The project started as a DriveLM VQA adaptation and efficiency study, then pivoted to a more useful Mini-VLA setting: given multi-camera nuScenes keyframes, predict the ego vehicle trajectory for the next 3 seconds as six future waypoints.
+For full project rationale, history, and decisions: see `docs/PROJECT_SPEC.md`, `docs/PROGRESS.md`, and `docs/JOURNEY.md`. These three files are the single source of truth.
 
-## Current Thesis
+## Current Headline Result
 
-The main result is no longer just "LoRA improves DriveLM VQA." The stronger project claim is:
+Validation on 500 of nuScenes's official 6 020-sample val split, using Impromptu-VLA's exact prompt schema:
 
-> A general VLM can be adapted into a lightweight driving VLA prototype by LoRA SFT on nuScenes-derived trajectory tokens, and simple visual-budget/camera-selection ablations show that the model uses current-scene visual input rather than only learning an average driving prior.
+| metric | value |
+| --- | ---: |
+| ADE | 0.610 m |
+| FDE | 1.393 m |
+| longitudinal ADE | 0.552 m |
+| lateral ADE | 0.156 m |
+| trajectory parse rate | 1.000 |
+| avg latency / sample | 7.87 s |
 
-## What Is Implemented
+Reference points (not directly reproduced here):
 
-- DriveLM VQA pipeline: data conversion, Qwen3-VL zero-shot eval, LoRA SFT, visual budget sweeps, and query-aware camera selection.
-- Mini-VLA pipeline: nuScenes metadata reader, future ego-trajectory extraction, trajectory-token SFT data, LoRA training, prior baselines, image ablations, and final suite summarization.
-- DriveBench support: text preparation and lazy zip image loading to avoid exploding server file-count quota.
-- Server launchers: bash wrappers under `scripts/run_*.sh` write logs under `logs/`.
+- Impromptu Base+nuScenes (Qwen2.5-VL-3B): 0.34 m L2 average
+- EMMA+: 0.29 m
+- Ego-MLP (no vision, ego status only): 0.35 m — illustrates how much of nuScenes open-loop ADE comes from ego-status fitting rather than vision
 
-## Key Results
+## Method Summary
 
-### DriveLM VQA
-
-| experiment | samples | metric | result |
-| --- | ---: | --- | ---: |
-| Qwen3-VL zero-shot | 100 | strict EM | 0.000 |
-| DriveLM LoRA SFT 10K | 100 | strict EM | 0.530 |
-| all-camera vtok128 | 500 | strict EM / latency | 0.548 / 0.746s |
-| QTS front max3 | 500 | strict EM / latency | 0.538 / 0.561s |
-
-Interpretation: LoRA adapts Qwen3-VL to the DriveLM answer format, but qualitative checks show weak fine-grained grounding on object IDs, camera names, coordinates, and long scene descriptions. QTS-lite is useful as an efficiency module, not as a grounding fix.
-
-### Mini-VLA
-
-Scene-disjoint nuScenes split, 100 validation samples, fixed 6-waypoint horizon:
-
-| run | images | parse | usable 6pt | ADE m | FDE m |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| zero prior | 0 | n/a | n/a | 9.071 | 15.409 |
-| train-mean prior | 0 | n/a | n/a | 4.524 | 8.011 |
-| Qwen3-VL zero-shot | 6 | 0.250 | 0.250 | 8.800 | 14.234 |
-| LoRA all cameras | 6 | 1.000 | 1.000 | 3.313 | 5.828 |
-| LoRA front3 | 3 | 1.000 | 1.000 | 3.477 | 6.155 |
-| LoRA mismatched images | 6 | 1.000 | 1.000 | 6.544 | 11.468 |
-
-Interpretation:
-
-- LoRA learns stable trajectory-token output and beats the train-mean trajectory prior.
-- Mismatched images degrade performance sharply, so the model is using current-scene visual information.
-- Front three cameras nearly match all six cameras, which supports the visual-input redundancy story in a VLA setting.
+- **Base model**: Qwen3-VL-4B-Instruct, fully frozen. ~4.5 B total parameters.
+- **Trainable**: LoRA on q/k/v/o + gate/up/down projections, rank 32, alpha 64. ~66 M trainable parameters (~1.5 % of base).
+- **Input**: one front-camera image (CAM_FRONT) + textual past-3 s ego status (position, velocity, acceleration, steering at 0.5 s spacing).
+- **Output**: a six-waypoint future trajectory wrapped in a `<PLANNING>...[x, y]: [...]</PLANNING>` block, plain BPE text tokens.
+- **Training**: full nuScenes train (28 130 samples), 2 epochs, 2× H100 DDP, ~6 h wall time. Final train_loss 0.247 / eval_loss 0.241.
+- **Inference**: greedy decoding, single GPU pinned to device 0 to avoid DataParallel which is incompatible with Qwen3-VL's vision module.
 
 ## Repository Layout
 
 ```text
-configs/                 Experiment, data, model, train, and eval configs
-docs/                    Project spec, dataset notes, and workflows
-scripts/                 CLI entry points and logged server launchers
-src/drivevlm_lite/       Python package
-tests/                   Unit tests
+configs/                Model / data / training YAML configs
+docs/                   PROJECT_SPEC.md, PROGRESS.md, JOURNEY.md, DATASETS.md, ENVIRONMENT.md
+scripts/                CLI entry points
+  data/                   prepare_nuscenes_vla.py + launcher
+  train/                  run_train_vla.sh (wraps the existing 04_train_sft.py)
+  eval/                   eval_vla.py + launcher
+  archive/                drivebench / autodrive_r2 (out of scope, kept for git history)
+  experimental/           drivelmm_o1 (parked candidate for Stage 6)
+src/drivevlm_lite/      Python package
+  camera_utils.py         Single regex utility for nuScenes camera tags
+  data/                   nuscenes_trajectory.py, nuscenes_cot.py, jsonl.py, impromptu_adapter.py
+  eval/                   metrics.py, impromptu_trajectory.py (PLANNING parser + ADE/FDE)
+  model/                  qwen_vl.py
+  experimental/           qts_neural.py (parked architectural idea)
+tests/                  Synthetic tests; runnable with plain python, no pytest required
 ```
 
-Ignored local folders include `data/`, `models/`, `reports/`, `logs/`, and `checkpoints/`.
+Everything under `data/`, `models/`, `checkpoints/`, `reports/`, `logs/`, `outputs/`, `external/`, and `experiments/` is git-ignored.
 
-## Server Environment
-
-Create a plain conda environment, then install PyTorch from the official CUDA 12.1 wheel:
+## Environment
 
 ```bash
 conda create -n drivevlm-lite python=3.10 pip -y
@@ -72,219 +63,88 @@ python -m pip install -U pip
 python -m pip install \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
   --index-url https://download.pytorch.org/whl/cu121
-python -m pip install -r requirements-e0.txt -c constraints-torch-cu121.txt
+python -m pip install -r requirements-e0.txt    -c constraints-torch-cu121.txt
+python -m pip install -r requirements-train.txt -c constraints-torch-cu121.txt
 python -m pip install -e . --no-deps
 python scripts/00_check_env.py
 ```
 
-Install training/report/demo packages only when needed:
+## Reproduction (server-side)
+
+### 1. Pull Impromptu's three reference text files
 
 ```bash
-python -m pip install -r requirements-train.txt -c constraints-torch-cu121.txt
-python -m pip install -r requirements-report.txt -c constraints-torch-cu121.txt
-python -m pip install -r requirements-demo.txt -c constraints-torch-cu121.txt
+mkdir -p data/external/impromptu_vla
+cd data/external/impromptu_vla
+curl -sSL -O https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/prompts.md
+curl -sSL -O https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/nuscenes_test.json
+curl -sSL -O https://raw.githubusercontent.com/ahydchh/Impromptu-VLA/main/nuscenes_train.json
+cd -
 ```
 
-## Mini-VLA Reproduction
+The 80 K-clip Impromptu pretraining dataset is intentionally **not** used; their published table 1 shows it contributes only ~0.04 m of L2 improvement over `Base+nuScenes` alone.
 
-Prepare scene-disjoint VLA data from an existing nuScenes keyframe root:
+### 2. Convert to project JSONL
 
 ```bash
-RUN_NAME=prepare_vla_data_1k_scene \
-NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-TRAIN_SAMPLES=1000 \
-VAL_SAMPLES=100 \
-OUT_DIR=data/processed_vla_scene \
-CANDIDATE_MULTIPLIER=4 \
-SPLIT_STRATEGY=scene \
-bash scripts/run_prepare_vla_data.sh
+bash scripts/data/run_prepare_nuscenes_vla.sh
+# → data/processed_vla_impromptu/{train,val}.jsonl  (28 130 / 6 019 rows)
 ```
 
-Check data:
+### 3. Train
+
+Single GPU:
 
 ```bash
-RUN_NAME=check_vla_1k_scene \
-INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
-OUT_DIR=reports/vla_data_check_1k_scene \
-LIMIT=100 \
-bash scripts/run_check_vla_data.sh
+RUN_NAME=full_vla bash scripts/train/run_train_vla.sh
 ```
 
-Train a 1K LoRA:
+Two GPUs:
 
 ```bash
-RUN_NAME=vla_scene_lora_1k \
-TRAIN_FILE=data/processed_vla_scene/nuscenes_vla_train.jsonl \
-EVAL_FILE=data/processed_vla_scene/nuscenes_vla_val.jsonl \
-OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_scene_1k \
-MAX_TRAIN_SAMPLES=1000 \
-MAX_EVAL_SAMPLES=100 \
-GRAD_ACCUM=16 \
-NUM_TRAIN_EPOCHS=1 \
-bash scripts/run_sft_debug.sh
+NUM_GPUS=2 RUN_NAME=full_vla bash scripts/train/run_train_vla.sh
 ```
 
-Run the final suite:
+The launcher pins `CUDA_VISIBLE_DEVICES=0` in single-GPU mode because HF Trainer otherwise wraps Qwen3-VL in DataParallel, which is incompatible with the vision module.
+
+### 4. Evaluate
 
 ```bash
-RUN_NAME=vla_scene_final_suite \
-ADAPTER=checkpoints/qwen3vl4b_lora_vla_scene_1k \
-TRAIN=data/processed_vla_scene/nuscenes_vla_train.jsonl \
-INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
-SUITE_DIR=reports/vla_scene_final_suite \
-LIMIT=100 \
-MAX_NEW_TOKENS=192 \
-bash scripts/run_vla_final_suite.sh
+LIMIT=500 RUN_NAME=eval_500 OUT_DIR=reports/eval_vla_impromptu_v1_500 \
+  bash scripts/eval/run_eval_vla.sh
 ```
 
-Read:
+Results land at `reports/<out-dir>/metrics.json` and `predictions.jsonl`.
 
-```text
-reports/vla_scene_final_suite/final_summary.md
-```
+### 5. Stage 5 ablation matrix
 
-## Synthetic CoT VLA Ablation
-
-This is the next reasoning experiment. It keeps the same nuScenes images and
-trajectory labels, then builds two paired training sets from the same rows:
-
-- A / direct: image input -> `TRAJ: ...`
-- B / synthetic CoT: image input -> brief metadata-derived reasoning -> `TRAJ: ...`
-
-The synthetic reasoning uses nuScenes `ego_pose` and `sample_annotation`
-metadata only. It does not copy images and does not depend on an external CoT
-dataset.
-
-Build a 500/100 A-B split:
+Re-runs the same checkpoint under five input corruptions to quantify the
+ego-status shortcut (how much of the ADE is vision vs. ego-state extrapolation),
+then assembles the matrix, per-maneuver, and ADE-distribution tables:
 
 ```bash
-RUN_NAME=build_vla_cot_ablation_500 \
-TRAIN_INPUT=data/processed_vla_scene/nuscenes_vla_train.jsonl \
-VAL_INPUT=data/processed_vla_scene/nuscenes_vla_val.jsonl \
-OUT_DIR=data/processed_vla_cot_ablation_500 \
-TRAIN_SAMPLES=500 \
-VAL_SAMPLES=100 \
-NUSCENES_ROOT=/dss/dssfs05/pn39qo/pn39qo-dss-0001/di97fer/projects_for_test/RA-OV3DSeg/data/nuscenes \
-bash scripts/run_build_vla_cot_ablation_data.sh
+LIMIT=500 OUT_ROOT=reports/ablation_matrix_v1_500 \
+  bash scripts/eval/run_ablation_matrix.sh
+OUT_ROOT=reports/ablation_matrix_v1_500 \
+  bash scripts/eval/run_analyze_ablations.sh
 ```
 
-Return this file for review:
+## Out of Scope
 
-```text
-data/processed_vla_cot_ablation_500/summary.md
-```
+The following are explicitly excluded from v1; see `docs/PROJECT_SPEC.md` for rationale:
 
-If the summary looks sane, train the direct and CoT runs:
-
-```bash
-RUN_NAME=vla_direct_500 \
-TRAIN_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_train.jsonl \
-EVAL_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_val.jsonl \
-OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_direct_500 \
-MAX_TRAIN_SAMPLES=500 \
-MAX_EVAL_SAMPLES=100 \
-GRAD_ACCUM=16 \
-NUM_TRAIN_EPOCHS=1 \
-bash scripts/run_sft_debug.sh
-
-RUN_NAME=vla_cot_500 \
-TRAIN_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_train.jsonl \
-EVAL_FILE=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_val.jsonl \
-OUTPUT_DIR=checkpoints/qwen3vl4b_lora_vla_cot_500 \
-MAX_TRAIN_SAMPLES=500 \
-MAX_EVAL_SAMPLES=100 \
-GRAD_ACCUM=16 \
-NUM_TRAIN_EPOCHS=1 \
-bash scripts/run_sft_debug.sh
-```
-
-Evaluate both:
-
-```bash
-RUN_NAME=eval_vla_direct_500 \
-ADAPTER=checkpoints/qwen3vl4b_lora_vla_direct_500 \
-INPUT=data/processed_vla_cot_ablation_500/nuscenes_vla_direct_val.jsonl \
-OUT=reports/eval_vla_direct_500 \
-LIMIT=100 \
-MAX_NEW_TOKENS=192 \
-bash scripts/run_eval_vla_trajectory.sh
-
-RUN_NAME=eval_vla_cot_500 \
-ADAPTER=checkpoints/qwen3vl4b_lora_vla_cot_500 \
-INPUT=data/processed_vla_cot_ablation_500/nuscenes_vla_cot_val.jsonl \
-OUT=reports/eval_vla_cot_500 \
-LIMIT=100 \
-MAX_NEW_TOKENS=384 \
-bash scripts/run_eval_vla_trajectory.sh
-```
-
-Return only:
-
-```text
-reports/eval_vla_direct_500/summary.md
-reports/eval_vla_cot_500/summary.md
-```
-
-Current result on the 500/100 split:
-
-| run | train | parse | usable 6pt | ADE m | FDE m | latency s |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| direct trajectory | 500 | 1.000 | 1.000 | 4.548 | 7.788 | 7.548 |
-| synthetic CoT + trajectory | 500 | 1.000 | 1.000 | 6.229 | 10.692 | 12.558 |
-
-Interpretation: synthetic CoT is a negative result for this setup. It increases
-generation cost and degrades ADE/FDE, so do not scale it or add DriveLMM-o1
-warmup until a better trajectory-aligned reasoning design exists.
-
-## Optional Reasoning Data
-
-External reasoning data is optional. It should be used only after the synthetic
-CoT A/B test above shows whether reasoning helps the trajectory task.
-
-AutoDrive-R2 / nuScenesR2-style CoT data was checked first, but the observed
-remote repository did not expose the advertised trajectory/CoT JSON files. Do
-not spend more time on it unless the remote file listing changes:
-
-```bash
-RUN_NAME=list_autodrive_r2_files \
-bash scripts/run_list_autodrive_r2_files.sh
-```
-
-DriveLMM-o1 is the current practical external reasoning dataset. It is small
-and nuScenes-based, but it is VQA reasoning, not trajectory prediction:
-
-```bash
-mkdir -p data/drivelmm_o1
-hf download ayeshaishaq/DriveLMMo1 \
-  DriveLMMo1_TRAIN.json DriveLMMo1_TEST.json \
-  --repo-type dataset \
-  --local-dir data/drivelmm_o1
-
-RUN_NAME=prepare_drivelmm_o1 \
-OUT_DIR=data/processed_drivelmm_o1 \
-bash scripts/run_prepare_drivelmm_o1.sh
-
-RUN_NAME=check_drivelmm_o1_val \
-INPUT=data/processed_drivelmm_o1/drivelmm_o1_val.jsonl \
-OUT_DIR=reports/drivelmm_o1_val_check \
-LIMIT=100 \
-bash scripts/run_check_reasoning_sft.sh
-```
-
-Read:
-
-```text
-data/processed_drivelmm_o1/summary.md
-reports/drivelmm_o1_val_check/summary.md
-```
-
-The intended use is reasoning warmup or reasoning benchmark before returning to
-the Mini-VLA trajectory suite.
+- Closed-loop simulation (Bench2Drive, NeuroNCAP, CARLA).
+- Continuous-action regression head; v1 uses text-token trajectory output.
+- Architectural changes to Qwen3-VL.
+- LLaMA-Factory / sglang dependencies.
+- Impromptu's 80 K pretraining dataset.
+- DriveBench / CODA-LM / DSBench evaluation.
+- Multi-dataset cross-domain training.
 
 ## Documentation
 
-- [Project spec](docs/PROJECT_SPEC.md)
-- [Dataset notes](docs/DATASETS.md)
-- [Development workflow](docs/DEVELOPMENT_FLOW.md)
-- [Environment setup](docs/ENVIRONMENT.md)
-- [Server setup](docs/SERVER_SETUP.md)
+- [`docs/PROJECT_SPEC.md`](docs/PROJECT_SPEC.md) — locked v1 plan (single source of truth)
+- [`docs/PROGRESS.md`](docs/PROGRESS.md) — running progress, updated each stage
+- [`docs/JOURNEY.md`](docs/JOURNEY.md) — design history and the reasoning behind each major decision
+- [`docs/FUTURE_DIRECTIONS.md`](docs/FUTURE_DIRECTIONS.md) — candidate v2/v3 research directions (tracked, not committed)
+- [`docs/DATASETS.md`](docs/DATASETS.md), [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md), [`docs/SERVER_SETUP.md`](docs/SERVER_SETUP.md) — operational notes

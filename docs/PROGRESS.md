@@ -6,7 +6,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 
 ---
 
-## Status snapshot (2026-05-13)
+## Status snapshot (2026-05-20)
 
 | stage | status | next action |
 | --- | --- | --- |
@@ -14,10 +14,13 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 1. Reference resource fetch | completed | files at `data/external/impromptu_vla/`, schema in JOURNEY §A |
 | 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
 | 3. Training adaptation | completed | full 28K LoRA done, eval_loss 0.24 |
-| 4. Baseline evaluation | in progress | run eval_vla.py on 100 → 500 → full val |
-| 5. Methodology layer | pending | ablation matrix (now 11+ rows) |
+| 4. Baseline evaluation | completed | 500-sample headline: ADE 0.61 m / FDE 1.39 m / parse 1.00 |
+| 5. Methodology layer | in progress | ablation tooling landed; run `run_ablation_matrix.sh` on the server |
 | 6. Differentiator (choose A/B/C) | pending | decision after Stage 5 |
 | 7. Report + demo | pending | last |
+
+Candidate v2/v3 research directions (out of v1 scope, tracked for after the
+report) are in `docs/FUTURE_DIRECTIONS.md`.
 
 ---
 
@@ -174,7 +177,9 @@ NUM_GPUS=2 RUN_NAME=full_vla bash scripts/train/run_train_vla.sh
 
 ## Stage 4 — Baseline evaluation
 
-**Status**: in progress (2026-05-20)
+**Status**: completed (2026-05-20)
+
+**Headline (500 of 6 019 val samples)**: ADE **0.61 m** / FDE **1.39 m** / parse_rate **1.00** / lon-ADE 0.55 / lat-ADE 0.16 / ~7.85 s per sample. (A 100-sample preview read 0.46 m; the 500-sample number is the trustable one.) This matches the Impromptu "1 cam + full ego status" cell at ~1.8x their 0.34 m on a different base model with no 80 K pretraining.
 
 **Deliverables**:
 - `src/drivevlm_lite/eval/impromptu_trajectory.py` — parser + ADE/FDE/lat/long helpers.
@@ -207,20 +212,67 @@ Output per run: `<out-dir>/predictions.jsonl` and `<out-dir>/metrics.json`.
 
 ## Stage 5 — Methodology layer
 
-**Status**: pending
+**Status**: in progress (2026-05-20)
 
-**Ablation rows** (running on the Stage 4 checkpoint unless noted):
-1. priors: zero / train-mean / train-median
-2. mismatched-image ablation
-3. front-3-camera ablation
-4. ego-status shortcut: vision-only / +past pose / +ego velocity / vision-masked + ego status
-5. lateral / longitudinal ADE split
-6. per-maneuver: straight / left / right / stop
-7. ADE distribution p25 / p50 / p75 / p95
+The whole point of Stage 5 is the **ego-status shortcut** question: open-loop
+nuScenes ADE is known to be largely solvable from ego state alone (an ego-only
+MLP reaches ~0.35 m with no vision). How much of our 0.61 m is the front-camera
+image versus inertial extrapolation of the past ego state? All rows below re-run
+the **same Stage 4 checkpoint** — no retraining — and only corrupt the input at
+inference time, so they are cheap.
 
-**Output**: `results/ablation_matrix.csv` + `docs/JOURNEY.md` appendix.
+**Tooling landed (this stage)**:
+- `src/drivevlm_lite/eval/ablations.py` — torch/PIL-free transforms + analysis
+  helpers (maneuver classification, percentiles); covered by
+  `tests/test_ablations.py` (7 tests).
+- `scripts/eval/eval_vla.py` — gained an `--ablation` flag.
+- `scripts/eval/run_ablation_matrix.sh` — runs all five at-inference rows.
+- `scripts/eval/analyze_ablations.py` + `run_analyze_ablations.sh` — CPU-only
+  post-processing into `ablation_matrix.csv`, `maneuver_breakdown.csv`, and
+  `ablation_summary.md`.
 
-**Done when**: ≥ 7 rows reported, ego-status shortcut clearly reproduced.
+**At-inference ablation rows** (one LoRA checkpoint, input corrupted at eval):
+
+| row | image | ego-status text | what it isolates |
+| --- | --- | --- | --- |
+| `full` | real frame | full | the Stage 4 baseline |
+| `no_kinematics` | real frame | positions only (no v/a/steering) | value of the kinematic fields |
+| `no_ego` | real frame | none | vision-only — the genuine differentiator |
+| `black_image` | all-zero | full | ego-only upper bound (Gemini "Zero Image") |
+| `mismatch_image` | other scene | full | does the model read *this* frame? |
+
+The `black_image` and `mismatch_image` rows directly answer the "did fusion
+actually happen" question raised in `docs/FUTURE_DIRECTIONS.md` §1: if `full` ≈
+`black_image`, the model is ignoring vision; if `full` ≪ `mismatch_image`, it is
+genuinely conditioning on the current frame.
+
+**Post-processing rows** (computed from `full` predictions, no GPU):
+- per-maneuver ADE: straight / left / right / stop (classified from GT trajectory).
+- ADE distribution p25 / p50 / p75 / p95.
+- lateral / longitudinal ADE split (already produced per-sample in Stage 4).
+
+**Server-side commands**:
+
+```bash
+# Run the five at-inference rows on the 500-sample subset (~1 h on 1 H100):
+LIMIT=500 OUT_ROOT=reports/ablation_matrix_v1_500 \
+  bash scripts/eval/run_ablation_matrix.sh
+
+# Assemble the matrix + maneuver + distribution tables (CPU, seconds):
+OUT_ROOT=reports/ablation_matrix_v1_500 \
+  bash scripts/eval/run_analyze_ablations.sh
+```
+
+**Optional expensive rows** (deferred unless the at-inference rows are
+inconclusive): a no-ego-status LoRA retrain, and front-3 / 6-camera retrains.
+These need one LoRA fit each (~6 h) and are out of scope for the v1 wrap.
+
+**Output**: `reports/ablation_matrix_v1_500/{ablation_matrix.csv,
+maneuver_breakdown.csv, ablation_summary.md}`; numbers copied into
+`docs/JOURNEY.md` Appendix B.
+
+**Done when**: ≥ 7 rows reported and the ego-status shortcut is quantified
+(i.e. the `no_ego` and `black_image` gaps are measured against `full`).
 
 ---
 
@@ -254,6 +306,8 @@ Three options (pick one):
 
 Append every notable scope or methodology decision here (newest on top).
 
+- **2026-05-20** Stage 5 starts: ablation tooling landed (`eval/ablations.py`, `--ablation` flag, matrix + analysis launchers). Five at-inference rows (full / no_kinematics / no_ego / black_image / mismatch_image) run on the existing checkpoint — no retrain. Gemini's "Zero Image" / "ego-zeroed" suggestions folded in as the `black_image` and `no_ego` rows. Candidate v2/v3 directions captured in `docs/FUTURE_DIRECTIONS.md`.
+- **2026-05-20** Stage 4 done: 500-sample headline ADE 0.61 m / FDE 1.39 m / parse 1.00 / lon 0.55 / lat 0.16.
 - **2026-05-20** Stage 4 starts: standalone eval script (no Trainer); generation + PLANNING parser + ADE/FDE/lat/long metrics.
 - **2026-05-20** Stage 3 done: full 28K LoRA on 2x H100 DDP, ~6h wall time, final train_loss 0.247, eval_loss 0.241.
 - **2026-05-13** Stage 3 starts: reuse existing 04_train_sft.py with one-line change (`id` fallback) + new YAML config + GPU-aware launcher. No model architecture changes.

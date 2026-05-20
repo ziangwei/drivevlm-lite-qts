@@ -4,6 +4,7 @@ This is the **single source of truth** for the project. If another doc disagrees
 
 For running progress, see `docs/PROGRESS.md`.
 For history and design rationale, see `docs/JOURNEY.md`.
+For research directions beyond v1 (tracked, not committed), see `docs/FUTURE_DIRECTIONS.md`.
 
 ## Project in one sentence
 
@@ -118,16 +119,24 @@ New entrypoint: `scripts/eval/eval_vla.py` (supersedes `15_eval_vla_trajectory.p
 
 ### Stage 5 — Methodology layer
 
-On the Stage 4 checkpoint, run the full ablation matrix:
-- three-tier prior baselines (zero / train-mean / train-median)
-- mismatched-image ablation
-- front-3-camera ablation
-- ego-status shortcut ablation (4 rows: vision-only / +past pose / +ego velocity / vision-masked + ego status)
-- lateral / longitudinal ADE split
-- per-maneuver breakdown (straight / left / right / stop)
-- p25 / p50 / p75 / p95 ADE distribution
+On the Stage 4 checkpoint, run the ablation matrix. The cheap rows corrupt the
+input at inference time (no retraining); they are implemented in
+`src/drivevlm_lite/eval/ablations.py` and run by
+`scripts/eval/run_ablation_matrix.sh`:
+- ego-status shortcut ablation, at-inference: `full` / `no_kinematics`
+  (positions only) / `no_ego` (vision-only) / `black_image` (vision-masked +
+  full ego status) / `mismatch_image`.
+- lateral / longitudinal ADE split (already produced per-sample in Stage 4).
+- per-maneuver breakdown (straight / left / right / stop), classified from GT.
+- p25 / p50 / p75 / p95 ADE distribution.
 
-**Done when**: a single results table is produced with ≥ 7 rows and ego-status shortcut is independently reproduced.
+Optional expensive rows, deferred unless the at-inference rows are inconclusive:
+no-ego-status LoRA retrain, front-3 / 6-camera retrains, train-mean / -median
+prior baselines.
+
+**Done when**: a single results table is produced with ≥ 7 rows and the
+ego-status shortcut is quantified (`no_ego` and `black_image` gaps measured
+against `full`).
 
 ### Stage 6 — Differentiator (choose ONE)
 

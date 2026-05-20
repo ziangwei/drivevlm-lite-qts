@@ -222,8 +222,61 @@ Implications:
 
 ## Appendix B — Ablation matrix snapshot
 
-To be filled after Stage 5.
+Stage 5 (started 2026-05-20). All rows below re-run the **same** Stage 4 LoRA
+checkpoint on the 500-sample val subset; only the input is corrupted at
+inference time (no retraining). Tooling: `src/drivevlm_lite/eval/ablations.py`,
+`scripts/eval/run_ablation_matrix.sh`, `scripts/eval/analyze_ablations.py`.
+
+The central question is the **ego-status shortcut**: open-loop nuScenes ADE is
+largely solvable from ego state alone (ego-only MLP ≈ 0.35 m, no vision), so we
+need to show how much of our 0.61 m is the front camera versus inertial
+extrapolation of the past ego state.
+
+| row | image | ego text | ADE | FDE | lon | lat | p50 | p95 | reading |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| full | real | full | 0.61 | 1.39 | 0.55 | 0.16 | _tbd_ | _tbd_ | Stage 4 baseline |
+| no_kinematics | real | positions only | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | value of v/a/steering |
+| no_ego | real | none | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | vision-only |
+| black_image | zero | full | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | ego-only upper bound |
+| mismatch_image | other scene | full | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | reads this frame? |
+
+Interpretation guide (to be confirmed by the numbers):
+- `full` ≈ `black_image` would mean the model barely uses the image and the
+  0.61 m is mostly ego-status extrapolation.
+- `full` ≪ `mismatch_image` would mean the model genuinely conditions on the
+  current frame (a wrong frame hurts).
+- `no_ego` is the headline differentiator cell vs. Impromptu's shortcut-heavy
+  setup; expect it well above `full` (target range 1.5 – 3.0 m).
+
+Per-maneuver ADE (straight / left / right / stop) and the p25/p50/p75/p95
+distribution are produced by `analyze_ablations.py` from the `full` row and
+land in `maneuver_breakdown.csv` / `ablation_summary.md`.
 
 ## Appendix C — Final numbers
 
 To be filled after Stage 7.
+
+## Appendix D — Candidate future directions (post-v1)
+
+A 2026-05-20 external review (Gemini) suggested four ways to deepen the project
+beyond the locked v1 scope. They are recorded here and, in fuller form with
+cost/value tags, in `docs/FUTURE_DIRECTIONS.md`. None of them change the v1
+plan; the review's own verdict was that going straight into the Stage 5
+ablation matrix is the right next move, which is what we are doing.
+
+1. **Extreme input ablations to prove fusion** — already folded into Stage 5 as
+   the `black_image` (zero image) and `no_ego` rows. No extra work; it was the
+   lowest-cost suggestion and overlaps the shortcut-peeling matrix.
+2. **Explainable-AD reasoning output** — emit a short `<REASONING>` before the
+   `<PLANNING>` coordinates. Flagged with a caveat: our earlier *synthetic*
+   metadata-templated CoT was a clear negative result (ADE 4.55 → 6.23 on the
+   old 500/100 Mini-VLA split, latency up). Worth revisiting only with a
+   genuinely different reasoning source (e.g. distilled from a stronger VLM),
+   not templated metadata.
+3. **Multi-frame / BEV vision (v2)** — feed 2–3 consecutive frames so the model
+   can infer relative motion of other agents that a single frame cannot show.
+   Medium cost; one retrain.
+4. **Continuous action representation (v3)** — replace BPE-text waypoints with a
+   diffusion head or a learned action codebook (VQ-VAE style). High cost;
+   conflicts with the v1 "no architecture change" constraint, so it is squarely
+   a v2/v3 research item.

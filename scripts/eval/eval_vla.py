@@ -38,6 +38,7 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from drivevlm_lite.data.jsonl import read_jsonl, write_jsonl
+from drivevlm_lite.eval.ablations import ABLATIONS, ablation_plan, transform_user_text
 from drivevlm_lite.eval.impromptu_trajectory import (
     ade,
     fde,
@@ -64,6 +65,12 @@ def _load_images(paths: list[str]) -> list[Image.Image]:
     return [Image.open(p).convert("RGB") for p in paths]
 
 
+def _blacken(images: list[Image.Image]) -> list[Image.Image]:
+    """Return all-zero (black) images of matching size — the vision-masked
+    condition. Text (full ego status) is left intact by the caller."""
+    return [Image.new("RGB", img.size, (0, 0, 0)) for img in images]
+
+
 def _build_prompt(processor, question: str, images: list[Image.Image]) -> str:
     user_content: list[dict[str, Any]] = [{"type": "image", "image": img} for img in images]
     user_content.append({"type": "text", "text": question})
@@ -83,9 +90,14 @@ def main() -> None:
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--limit", default=0, type=int, help="Max samples to eval (0 = all).")
     parser.add_argument("--max-new-tokens", default=256, type=int)
+    parser.add_argument("--ablation", default="full", choices=ABLATIONS,
+        help="Stage 5 input corruption applied at inference time (default: full baseline).")
     parser.add_argument("--num-gpus", default=1, type=int,
         help="Accepted for interface uniformity; this script uses one GPU.")
     args = parser.parse_args()
+
+    plan = ablation_plan(args.ablation)
+    print(f"ablation={args.ablation}  text={plan.text}  image={plan.image}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -128,13 +140,23 @@ def main() -> None:
     lat_values: list[float] = []
     latencies: list[float] = []
 
-    for row in tqdm(rows, desc="VLA eval"):
-        question = _user_text(row)
+    n_rows = len(rows)
+    for idx, row in enumerate(tqdm(rows, desc="VLA eval")):
+        question = transform_user_text(_user_text(row), args.ablation)
         gt_text = _assistant_text(row)
         gt_waypoints = parse_planning_text(gt_text)
 
         image_paths = [str(p) for p in row.get("images", [])]
-        images = _load_images(image_paths)
+        if plan.image == "mismatch":
+            # Pair this row's text with a different scene's image so we can
+            # tell whether the model reads the current frame at all.
+            donor = rows[(idx + 1) % n_rows]
+            load_paths = [str(p) for p in donor.get("images", [])]
+        else:
+            load_paths = image_paths
+        images = _load_images(load_paths)
+        if plan.image == "black":
+            images = _blacken(images)
         prompt_text = _build_prompt(processor, question, images)
         inputs = processor(text=[prompt_text], images=images, return_tensors="pt")
         input_len = int(inputs["input_ids"].shape[1])
@@ -194,6 +216,7 @@ def main() -> None:
         "val_file": str(args.val_file),
         "model": args.model,
         "adapter": args.adapter,
+        "ablation": args.ablation,
         "count": n,
         "parse_rate": parse_ok / max(1, n),
         "parse_full6_rate": parse_full6 / max(1, n),
