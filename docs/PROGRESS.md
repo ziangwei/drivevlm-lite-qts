@@ -13,8 +13,8 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 0. Repo cleanup | completed | — |
 | 1. Reference resource fetch | completed | files at `data/external/impromptu_vla/`, schema in JOURNEY §A |
 | 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
-| 3. Training adaptation | in progress | smoke test 100 samples, then full 28K run |
-| 4. Baseline evaluation | pending | dual-split eval |
+| 3. Training adaptation | completed | full 28K LoRA done, eval_loss 0.24 |
+| 4. Baseline evaluation | in progress | run eval_vla.py on 100 → 500 → full val |
 | 5. Methodology layer | pending | ablation matrix (now 11+ rows) |
 | 6. Differentiator (choose A/B/C) | pending | decision after Stage 5 |
 | 7. Report + demo | pending | last |
@@ -174,17 +174,34 @@ NUM_GPUS=2 RUN_NAME=full_vla bash scripts/train/run_train_vla.sh
 
 ## Stage 4 — Baseline evaluation
 
-**Status**: pending
+**Status**: in progress (2026-05-20)
 
-**Outputs**:
-- `scripts/eval/eval_vla.py`.
-- Two result JSON files: `results/eval_v2_scene_disjoint.json`, `results/eval_v2_impromptu_split.json`.
+**Deliverables**:
+- `src/drivevlm_lite/eval/impromptu_trajectory.py` — parser + ADE/FDE/lat/long helpers.
+- `scripts/eval/eval_vla.py` — generation + parsing + per-sample metrics.
+- `scripts/eval/run_eval_vla.sh` — launcher with `LIMIT` and `GPU_ID` env vars.
+- `tests/test_impromptu_trajectory.py` — 10 parser / metric tests.
 
-**Target**: ADE 0.5 – 0.8 m on our scene-disjoint val; ADE comparable to Impromptu Base+nuScenes (0.34 m) on their test split, within 2x.
+**Server-side commands**:
 
-**If miss**: do not advance to Stage 5. Debug prompt format, LoRA config, dataset filtering. Likely causes (in priority order): missing past ego pose, missing navigation command, mismatched output token format, insufficient training steps.
+```bash
+# Smoke (100 samples, ~5-10 min):
+LIMIT=100 RUN_NAME=eval_smoke bash scripts/eval/run_eval_vla.sh
 
-**Done when**: target met.
+# Mid run (500 samples, ~25-50 min) — the headline number:
+LIMIT=500 RUN_NAME=eval_500 OUT_DIR=reports/eval_vla_impromptu_v1_500 \
+  bash scripts/eval/run_eval_vla.sh
+
+# Full val (~6020 samples, ~5h):
+LIMIT=0 RUN_NAME=eval_full OUT_DIR=reports/eval_vla_impromptu_v1_full \
+  bash scripts/eval/run_eval_vla.sh
+```
+
+Output per run: `<out-dir>/predictions.jsonl` and `<out-dir>/metrics.json`.
+
+**Target on 500 samples**: parse_rate 1.0, ADE in [0.4, 0.7] m at this matched cell. On full val numbers will not move much from the 500-sample mid run.
+
+**Done when**: ADE on the matched cell is in target range and parse_rate ≥ 0.99.
 
 ---
 
@@ -237,6 +254,8 @@ Three options (pick one):
 
 Append every notable scope or methodology decision here (newest on top).
 
+- **2026-05-20** Stage 4 starts: standalone eval script (no Trainer); generation + PLANNING parser + ADE/FDE/lat/long metrics.
+- **2026-05-20** Stage 3 done: full 28K LoRA on 2x H100 DDP, ~6h wall time, final train_loss 0.247, eval_loss 0.241.
 - **2026-05-13** Stage 3 starts: reuse existing 04_train_sft.py with one-line change (`id` fallback) + new YAML config + GPU-aware launcher. No model architecture changes.
 - **2026-05-13** Stage 2: switched approach — adopted Impromptu's ready-made `nuscenes_{train,test}.json` (uses canonical 700/150 nuScenes scene split) instead of regenerating prompts ourselves; only image-path rewriting is needed.
 - **2026-05-13** Stage 1 reveals Impromptu uses single CAM_FRONT + full ego status (velocity/accel/steering). v1 target revised to 0.4 – 0.7 m at the matched cell; vision-only becomes a deliberate ablation row, not the main number.
