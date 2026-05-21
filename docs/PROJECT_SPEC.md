@@ -138,13 +138,22 @@ prior baselines.
 ego-status shortcut is quantified (`no_ego` and `black_image` gaps measured
 against `full`).
 
-### Stage 6 — Differentiator (choose ONE)
+### Stage 6 — Differentiator
 
-- **A**. off-road rate via nuScenes HD map (preferred for driving credibility)
-- **B**. synthetic CoT supervision (reuses `scripts/23_build_vla_cot_ablation_data.py`)
-- **C**. lightweight trajectory regression head (architecture-layer contribution)
+**Chosen: Option A — off-road / drivable-area rate via the nuScenes HD map.**
+Implemented in `src/drivevlm_lite/eval/geometry.py` + `scripts/eval/eval_offroad.py`
+(resolve sample_data by CAM_FRONT basename → ego global pose → lift waypoints to
+global → query `drivable_area`). Reports pred vs GT off-road rate. Needs
+`nuscenes-devkit`, the `v1.0-trainval` metadata, and the map-expansion pack on
+the server (preflight: `CHECK_ONLY=1 bash scripts/eval/run_offroad.sh`).
 
-**Done when**: one additional row appended to the Stage 5 table with a clear claim.
+Not chosen (kept for reference): B. synthetic CoT supervision — already a
+**negative** result in this project (see `docs/FUTURE_DIRECTIONS.md` §2);
+C. trajectory regression head — violates the v1 "no architecture change"
+constraint, deferred to v3.
+
+**Done when**: a pred vs GT off-road rate is reported on the 500-sample subset
+(GT near 0 %) and appended to the Stage 5 table with a clear claim.
 
 ### Stage 7 — Report + demo
 

@@ -232,21 +232,44 @@ largely solvable from ego state alone (ego-only MLP ≈ 0.35 m, no vision), so w
 need to show how much of our 0.61 m is the front camera versus inertial
 extrapolation of the past ego state.
 
-| row | image | ego text | ADE | FDE | lon | lat | p50 | p95 | reading |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| full | real | full | 0.61 | 1.39 | 0.55 | 0.16 | _tbd_ | _tbd_ | Stage 4 baseline |
-| no_kinematics | real | positions only | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | value of v/a/steering |
-| no_ego | real | none | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | vision-only |
-| black_image | zero | full | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | ego-only upper bound |
-| mismatch_image | other scene | full | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | reads this frame? |
+Results — 500-sample subset, 2026-05-20:
 
-Interpretation guide (to be confirmed by the numbers):
-- `full` ≈ `black_image` would mean the model barely uses the image and the
-  0.61 m is mostly ego-status extrapolation.
-- `full` ≪ `mismatch_image` would mean the model genuinely conditions on the
-  current frame (a wrong frame hurts).
-- `no_ego` is the headline differentiator cell vs. Impromptu's shortcut-heavy
-  setup; expect it well above `full` (target range 1.5 – 3.0 m).
+| row | image | ego text | parse | ADE | FDE | lon | lat |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| full | real | full | 1.00 | 0.61 | 1.39 | 0.55 | 0.16 |
+| no_kinematics | real | positions only | 1.00 | 1.47 | 2.99 | 1.32 | 0.37 |
+| no_ego | real | none | 0.10 | 7.21\* | 12.45\* | 7.14\* | 0.67\* |
+| black_image | zero pixels | full | 1.00 | 0.96 | 2.38 | 0.66 | 0.54 |
+| mismatch_image | other scene | full | 1.00 | 0.63 | 1.43 | 0.55 | 0.18 |
+
+\* `no_ego` ADE is computed over the 10 % of samples that still parsed; it is
+not a clean number (see finding 4).
+
+Findings:
+
+1. **Ego-status shortcut dominates.** Zeroing the image but keeping full ego
+   status (`black_image`) only moves ADE 0.61 → 0.96 m: the model reaches
+   ~0.96 m with no visual information at all. This reproduces, in a VLA setting,
+   the AD-MLP / BEV-Planner critique that nuScenes open-loop ADE is largely
+   solvable from ego state (cf. ego-only MLP ≈ 0.35 m).
+2. **The model uses "an image", not "the scene".** Swapping in a *different*
+   scene's frame (`mismatch_image`) barely changes ADE (0.61 → 0.63 m), while a
+   black frame hurts (→ 0.96 m). So the visual pathway contributes a generic
+   in-distribution prior, not scene-specific reasoning: having a plausible image
+   matters (black → mismatch closes 0.33 m), having the *correct* image adds
+   only ~0.02 m.
+3. **Kinematics carry the longitudinal signal.** Dropping velocity / accel /
+   steering (`no_kinematics`) more than doubles ADE (0.61 → 1.47 m); lon-ADE
+   roughly quadruples (0.55 → 1.32 m) while lat-ADE moves far less (0.16 →
+   0.37 m). Velocity → distance-travelled-in-3 s is the single biggest field.
+4. **`no_ego` is contaminated, not clean.** Deleting all ego text breaks the
+   trained prompt structure: parse_rate collapses to 0.10, so its ADE 7.21 m is
+   over a non-representative 10 % and measures format-OOD more than vision-only
+   capability. Use `black_image` (parse 1.00, format intact) as the clean
+   ego-only reference; a true vision-only number would need a retrained LoRA.
+
+Per-maneuver ADE and p25/p50/p75/p95 come from `analyze_ablations.py`
+(`ablation_summary.md`); fill in once that step is run.
 
 Per-maneuver ADE (straight / left / right / stop) and the p25/p50/p75/p95
 distribution are produced by `analyze_ablations.py` from the `full` row and

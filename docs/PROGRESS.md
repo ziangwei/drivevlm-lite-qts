@@ -15,8 +15,8 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
 | 3. Training adaptation | completed | full 28K LoRA done, eval_loss 0.24 |
 | 4. Baseline evaluation | completed | 500-sample headline: ADE 0.61 m / FDE 1.39 m / parse 1.00 |
-| 5. Methodology layer | in progress | ablation tooling landed; run `run_ablation_matrix.sh` on the server |
-| 6. Differentiator (choose A/B/C) | pending | decision after Stage 5 |
+| 5. Methodology layer | in progress | ablation run done (5 rows); run `run_analyze_ablations.sh` for maneuver/percentiles |
+| 6. Differentiator | in progress | Option A chosen (off-road rate); tooling landed, run `run_offroad.sh` on the server |
 | 7. Report + demo | pending | last |
 
 Candidate v2/v3 research directions (out of v1 scope, tracked for after the
@@ -271,21 +271,67 @@ These need one LoRA fit each (~6 h) and are out of scope for the v1 wrap.
 maneuver_breakdown.csv, ablation_summary.md}`; numbers copied into
 `docs/JOURNEY.md` Appendix B.
 
+**Results (500-sample subset, 2026-05-20)** — full ADE 0.61 / no_kinematics 1.47
+/ no_ego 7.21 (parse 0.10, contaminated) / black_image 0.96 / mismatch_image
+0.63. Headline reading: the ego-status shortcut dominates (ego-only ≈ 0.96 m),
+and the model uses "an image" but not "the scene" (a wrong frame barely hurts,
++0.02 m; a black frame does, +0.35 m). Full numbers + interpretation in
+`docs/JOURNEY.md` Appendix B.
+
+**Remaining**: run `run_analyze_ablations.sh` to add the per-maneuver breakdown
+and ADE percentiles, then copy those into Appendix B.
+
 **Done when**: ≥ 7 rows reported and the ego-status shortcut is quantified
-(i.e. the `no_ego` and `black_image` gaps are measured against `full`).
+(i.e. the `no_ego` and `black_image` gaps are measured against `full`) — the
+five at-inference rows are in; only the post-hoc maneuver / distribution tables
+remain.
 
 ---
 
 ## Stage 6 — Differentiator
 
-**Status**: pending (decision deferred until Stage 5 done)
+**Status**: in progress (2026-05-20) — **Option A chosen: off-road / drivable-area
+rate via the nuScenes HD map.**
 
-Three options (pick one):
-- **A. Off-road rate via HD map** (preferred): driving-credibility, engineering medium.
-- **B. Synthetic CoT supervision**: reuses `nuscenes_cot.py`, trendy keywords.
-- **C. Trajectory regression head**: architecture-layer, engineering high.
+Rationale: it adds a driving-semantic metric orthogonal to ADE — "is the
+predicted path even on the road?" — which the Stage 5 ego-status shortcut has no
+particular reason to satisfy. That makes it the natural follow-up to the
+shortcut finding: a path can be ADE-close yet leave the drivable area.
 
-**Done when**: one new row in the table with a clear claim.
+**Tooling landed (code only, runs on the server)**:
+- `src/drivevlm_lite/eval/geometry.py` — ego→global transform + yaw-from-quaternion,
+  pure python; `tests/test_geometry.py` (6 tests).
+- `scripts/eval/eval_offroad.py` — resolves each row's nuScenes `sample_data`
+  from the CAM_FRONT image basename, reads the ego global pose + map location,
+  lifts predicted/GT waypoints to the global frame, and queries
+  `NuScenesMap.layers_on_point` for `drivable_area`. Reports per-waypoint and
+  per-trajectory off-road rate for both prediction and GT (GT is the sanity
+  floor, should be ~0 %). Has a `--check-only` preflight.
+- `scripts/eval/run_offroad.sh` — launcher (`CHECK_ONLY=1` for preflight).
+
+**New external dependency** (must be on the server before the run):
+- `nuscenes-devkit` (`pip install nuscenes-devkit --break-system-packages`).
+- the `v1.0-trainval` metadata json tables (not just keyframe images).
+- the **map-expansion pack** (`nuScenes-map-expansion-v1.3`), unzipped so that
+  `<nuscenes_root>/maps/expansion/*.json` exists.
+- The preflight (`CHECK_ONLY=1`) verifies all three and prints exactly what is
+  missing before the full pass.
+
+**Server-side commands**:
+
+```bash
+# 0. Preflight (verifies devkit + trainval metadata + map-expansion pack):
+CHECK_ONLY=1 bash scripts/eval/run_offroad.sh
+
+# 1. Full off-road pass on the Stage 5 'full' predictions (CPU):
+PREDICTIONS=reports/ablation_matrix_v1_500/full/predictions.jsonl \
+  OUT_DIR=reports/offroad_v1_500 bash scripts/eval/run_offroad.sh
+```
+
+**Output**: `reports/offroad_v1_500/{offroad_metrics.json,offroad_per_sample.jsonl}`.
+
+**Done when**: a pred vs GT off-road rate is reported on the 500-sample subset
+(GT near 0 %) and added to the results table with a clear claim.
 
 ---
 
