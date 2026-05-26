@@ -16,7 +16,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 3. Training adaptation | completed | full 28K LoRA done, eval_loss 0.24 |
 | 4. Baseline evaluation | completed | 500-sample headline: ADE 0.61 m / FDE 1.39 m / parse 1.00 |
 | 5. Methodology layer | completed | 5 ablation rows + maneuver + distribution all reported |
-| 6. Differentiator | completed | off-road rate: pred 0.40 % traj / GT 0 %. Honest caveat — necessary but not strongly discriminative on nuScenes |
+| 6. Differentiator | completed | off-road × Stage 5 cross-tab: full 0.4 % / black 12 % / mismatch 0.4 % — vision does road-following, not scene reading |
 | 7. Report + demo | pending | last |
 
 Candidate v2/v3 research directions (out of v1 scope, tracked for after the
@@ -343,14 +343,15 @@ PREDICTIONS=reports/ablation_matrix_v1_500/full/predictions.jsonl \
 
 **Output**: `reports/offroad_v1_500/{offroad_metrics.json,offroad_per_sample.jsonl}`.
 
-**Results (500-sample subset, 2026-05-21)** — predicted off-road rate
-**0.10 %** per waypoint / **0.40 %** per trajectory; GT 0 % per waypoint and
-trajectory (sanity floor ✓). Reading: 99.6 % of predicted 3 s paths stay
-entirely on the drivable area, a clean necessary-but-not-sufficient
-driving-credibility result; the metric is intentionally non-strong because
-nuScenes `drivable_area` is permissive and the ego-status shortcut (Stage 5)
-already keeps short-horizon extrapolations on the road. Honest interpretation
-and the recommended extension (rerun on the Stage 5 ablation variants) are in
+**Results (500-sample subset, 2026-05-21, cross-tab over all 5 Stage 5 rows)** —
+trajectory off-road: full 0.40 % / no_kinematics 3.20 % / no_ego 9.80 %\* /
+**black_image 12.00 %** / mismatch_image 0.40 %; GT 0 % everywhere (sanity ✓).
+**Key reading**: off-road rate is discriminative in a direction ADE is not.
+ADE has `mismatch ≈ full` (vision content irrelevant); off-road *also* has
+`mismatch ≈ full`, but `black_image` jumps 30× to 12 %. So the image is doing
+**road-following**, not scene-specific trajectory shaping — replacing the image
+with noise breaks road-following even with full ego state, replacing it with
+another real scene does not. Full cross-tab + interpretation in
 `docs/JOURNEY.md` Appendix E.
 
 **Done when**: a pred vs GT off-road rate is reported on the 500-sample subset

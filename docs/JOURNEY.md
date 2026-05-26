@@ -298,44 +298,61 @@ To be filled after Stage 7.
 
 ## Appendix E — Stage 6 off-road rate (2026-05-21)
 
-Off-road / drivable-area rate computed against the nuScenes HD map
-(`drivable_area` layer) on the same 500-sample val subset, using the Stage 5
-`full` row's predictions. Pose lookup uses a precomputed CAM_FRONT pose index
-(`scripts/eval/build_pose_index.py`); off-road query uses
-`NuScenesMap.layers_on_point`.
+Off-road / drivable-area rate against the nuScenes HD map (`drivable_area`
+layer) on the same 500-sample val subset. Pose lookup uses the cached CAM_FRONT
+pose index (`scripts/eval/build_pose_index.py`); the query is
+`NuScenesMap.layers_on_point`. The metric is run **on each of the five
+Stage 5 ablation predictions**, not just `full` — that cross-tab is what makes
+it informative.
 
-| series | waypoint off-road | trajectory off-road |
-| --- | ---: | ---: |
-| Stage 4/5 `full` prediction | 0.10 % | 0.40 % |
-| ground truth (sanity floor) | 0.00 % | 0.00 % |
+| Stage 5 row | parse | ADE | waypoint off-road | trajectory off-road | GT traj off-road |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| full | 1.00 | 0.61 | 0.10 % | 0.40 % | 0.00 % |
+| no_kinematics | 1.00 | 1.47 | 0.67 % | 3.20 % | 0.00 % |
+| no_ego | 0.10\* | 7.21\* | 3.58 %\* | 9.80 %\* | 0.00 % |
+| black_image | 1.00 | 0.96 | 2.80 % | **12.00 %** | 0.00 % |
+| mismatch_image | 1.00 | 0.63 | 0.10 % | 0.40 % | 0.00 % |
 
-Sanity: the GT 0 % confirms the ego→global transform and the drivable-area
-query are correct (logged trajectories are by definition on the road); without
-this floor the predicted number is uninterpretable.
+\* `no_ego` is computed over the 51/500 (10 %) that still parsed; not a clean
+number, kept only for completeness.
 
-Reading: 99.6 % of predicted 3 s trajectories stay entirely within drivable
-area; 99.9 % of waypoints do. That is a **necessary** driving-credibility
-result and a clean sanity check on the v1 pipeline, but on its own it is
-**not strongly discriminative**. Two reasons:
+Sanity: GT 0 % across all rows confirms the ego→global transform and the
+drivable-area query are correct.
 
-1. nuScenes `drivable_area` is permissive — lanes plus adjacent driveable
-   surfaces — so most reasonable trajectories land inside it.
-2. The Stage 5 ego-status shortcut (Appendix B) means a 3 s extrapolation from
-   the current heading naturally stays on-road, since the ego at t=0 was on the
-   road. A model that ignores the image entirely (Stage 5 `black_image`,
-   ADE 0.96) would likely score a similar off-road rate.
+**Findings (this row sharpens, not confirms, the Stage 5 reading).**
 
-The cleanest way to convert this row into a *discriminative* claim is to rerun
-the same off-road metric on the four Stage 5 ablation variants
-(`no_kinematics`, `no_ego`, `black_image`, `mismatch_image`). If they are all
-near 0 %, off-road rate is confirmed as non-discriminative on nuScenes and the
-finding becomes "ADE is shortcut-dominated *and* off-road rate is too generous
-to expose it." If `black_image` is materially higher, vision contributes to
-road-following beyond ADE. Either result strengthens the report.
+5. **ADE and off-road rate tell different stories about what vision does for
+   the model.** ADE has `mismatch ≈ full` (0.61 vs 0.63), which on its own
+   would say "vision content barely matters". Off-road rate *also* has
+   `mismatch ≈ full` (0.40 % vs 0.40 %), reinforcing that the *specific* scene
+   is irrelevant — *but* `black_image` jumps from 0.40 % to **12.00 %**, a 30×
+   increase, while its ADE only moved 0.61 → 0.96. So the image pathway is
+   doing real work — it just isn't refining the trajectory's shape, it's
+   keeping the path on the drivable area. Vision contributes **road-following,
+   not scene-specific trajectory shaping**.
 
-Net for the v1 narrative: the scientific punch lives in the Stage 5 ego-status
-shortcut diagnostic; Stage 6 contributes a sanity-grade off-road number and an
-honest caveat about the limits of open-loop nuScenes metrics.
+6. **Off-road rate is, contrary to the initial expectation in this appendix's
+   first draft, discriminative.** It cleanly separates "in-distribution image"
+   (full / mismatch / even no_kinematics) from "OOD image" (black). The
+   permissive `drivable_area` is still loose enough to absorb ADE noise but
+   tight enough to catch the multimodal degradation when the visual stream is
+   degenerate.
+
+7. **The kinematics carry road-following indirectly.** Dropping velocity / accel
+   / steering (`no_kinematics`) raises trajectory off-road by ~8× (0.4 → 3.2 %),
+   far less than blacking the image, because the past positions still encode
+   yaw / heading.
+
+**Net narrative for the report and interview.** ADE alone undersold what vision
+does. The full Stage 5 × off-road cross-tab is the cleanest one-table story:
+
+- The 0.61 m ADE is largely an ego-status shortcut (Stage 5).
+- The image is not used to read the scene (mismatch ≈ full on both metrics).
+- The image *is* used to keep the predicted path on the road
+  (black_image trajectory off-road 12 % vs full 0.4 %).
+- Two different driving metrics, agreeing on (1) and (2) and disagreeing
+  usefully on (3), is the methodology contribution this project adds on top of
+  the Impromptu replication.
 
 ## Appendix D — Candidate future directions (post-v1)
 
