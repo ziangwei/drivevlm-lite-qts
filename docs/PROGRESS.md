@@ -17,7 +17,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 4. Baseline evaluation | completed | 500-sample headline: ADE 0.61 m / FDE 1.39 m / parse 1.00 |
 | 5. Methodology layer | completed | 5 ablation rows + maneuver + distribution all reported |
 | 6. Differentiator | completed | off-road × Stage 5 cross-tab: full 0.4 % / black 12 % / mismatch 0.4 % — vision does road-following, not scene reading |
-| 7. Report + demo | pending | last |
+| 7. Report + demo | in progress | report drafted locally (gitignored); BEV visualization notebook still to do |
 
 Candidate v2/v3 research directions (out of v1 scope, tracked for after the
 report) are in `docs/FUTURE_DIRECTIONS.md`.
@@ -361,12 +361,16 @@ another real scene does not. Full cross-tab + interpretation in
 
 ## Stage 7 — Report + demo
 
-**Status**: pending
+**Status**: in progress (2026-05-27) — phase 1 (report) drafted locally,
+phase 2 (BEV visualization notebook) still to do.
 
 **Outputs**:
-- `docs/REPORT.md`
-- `notebooks/visualize_v2.ipynb` (BEV GT vs prediction)
-- optional preprint draft.
+- `docs/REPORT.md` — drafted 2026-05-27. **Kept local-only** (gitignored, like
+  `PROJECT_INTERVIEW_LOG.md`); not in this repository. The public substance —
+  numbers, ablation matrix, off-road cross-tab, design rationale — already
+  lives in `docs/PROGRESS.md` and `docs/JOURNEY.md`.
+- `notebooks/visualize_v2.ipynb` (BEV GT vs prediction) — **pending.**
+- Optional preprint draft — out of v1 scope unless needed.
 
 **Done when**: 30-minute project talk possible from `docs/REPORT.md` alone.
 
