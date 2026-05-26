@@ -296,6 +296,47 @@ land in `maneuver_breakdown.csv` / `ablation_summary.md`.
 
 To be filled after Stage 7.
 
+## Appendix E — Stage 6 off-road rate (2026-05-21)
+
+Off-road / drivable-area rate computed against the nuScenes HD map
+(`drivable_area` layer) on the same 500-sample val subset, using the Stage 5
+`full` row's predictions. Pose lookup uses a precomputed CAM_FRONT pose index
+(`scripts/eval/build_pose_index.py`); off-road query uses
+`NuScenesMap.layers_on_point`.
+
+| series | waypoint off-road | trajectory off-road |
+| --- | ---: | ---: |
+| Stage 4/5 `full` prediction | 0.10 % | 0.40 % |
+| ground truth (sanity floor) | 0.00 % | 0.00 % |
+
+Sanity: the GT 0 % confirms the ego→global transform and the drivable-area
+query are correct (logged trajectories are by definition on the road); without
+this floor the predicted number is uninterpretable.
+
+Reading: 99.6 % of predicted 3 s trajectories stay entirely within drivable
+area; 99.9 % of waypoints do. That is a **necessary** driving-credibility
+result and a clean sanity check on the v1 pipeline, but on its own it is
+**not strongly discriminative**. Two reasons:
+
+1. nuScenes `drivable_area` is permissive — lanes plus adjacent driveable
+   surfaces — so most reasonable trajectories land inside it.
+2. The Stage 5 ego-status shortcut (Appendix B) means a 3 s extrapolation from
+   the current heading naturally stays on-road, since the ego at t=0 was on the
+   road. A model that ignores the image entirely (Stage 5 `black_image`,
+   ADE 0.96) would likely score a similar off-road rate.
+
+The cleanest way to convert this row into a *discriminative* claim is to rerun
+the same off-road metric on the four Stage 5 ablation variants
+(`no_kinematics`, `no_ego`, `black_image`, `mismatch_image`). If they are all
+near 0 %, off-road rate is confirmed as non-discriminative on nuScenes and the
+finding becomes "ADE is shortcut-dominated *and* off-road rate is too generous
+to expose it." If `black_image` is materially higher, vision contributes to
+road-following beyond ADE. Either result strengthens the report.
+
+Net for the v1 narrative: the scientific punch lives in the Stage 5 ego-status
+shortcut diagnostic; Stage 6 contributes a sanity-grade off-road number and an
+honest caveat about the limits of open-loop nuScenes metrics.
+
 ## Appendix D — Candidate future directions (post-v1)
 
 A 2026-05-20 external review (Gemini) suggested four ways to deepen the project
