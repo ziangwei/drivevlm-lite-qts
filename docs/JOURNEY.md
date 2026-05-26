@@ -234,16 +234,19 @@ extrapolation of the past ego state.
 
 Results — 500-sample subset, 2026-05-20:
 
-| row | image | ego text | parse | ADE | FDE | lon | lat |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| full | real | full | 1.00 | 0.61 | 1.39 | 0.55 | 0.16 |
-| no_kinematics | real | positions only | 1.00 | 1.47 | 2.99 | 1.32 | 0.37 |
-| no_ego | real | none | 0.10 | 7.21\* | 12.45\* | 7.14\* | 0.67\* |
-| black_image | zero pixels | full | 1.00 | 0.96 | 2.38 | 0.66 | 0.54 |
-| mismatch_image | other scene | full | 1.00 | 0.63 | 1.43 | 0.55 | 0.18 |
+| row | image | ego text | parse | ADE | FDE | lon | lat | p50 | p95 |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| full | real | full | 1.00 | 0.61 | 1.39 | 0.55 | 0.16 | 0.48 | 1.58 |
+| no_kinematics | real | positions only | 1.00 | 1.47 | 2.99 | 1.32 | 0.37 | 1.04 | 3.99 |
+| no_ego | real | none | 0.10 | 7.21\* | 12.45\* | 7.14\* | 0.67\* | 5.81\* | 21.15\* |
+| black_image | zero pixels | full | 1.00 | 0.96 | 2.38 | 0.66 | 0.54 | 0.93 | 2.08 |
+| mismatch_image | other scene | full | 1.00 | 0.63 | 1.43 | 0.55 | 0.18 | 0.49 | 1.65 |
 
-\* `no_ego` ADE is computed over the 10 % of samples that still parsed; it is
-not a clean number (see finding 4).
+\* `no_ego` numbers are over the 10 % of samples that still parsed; not clean
+(see finding 4).
+
+The `full` distribution is right-skewed (p50 0.48 < mean 0.61, p95 1.58): most
+predictions are tight, a long tail lifts the mean.
 
 Findings:
 
@@ -268,8 +271,22 @@ Findings:
    capability. Use `black_image` (parse 1.00, format intact) as the clean
    ego-only reference; a true vision-only number would need a retrained LoRA.
 
-Per-maneuver ADE and p25/p50/p75/p95 come from `analyze_ablations.py`
-(`ablation_summary.md`); fill in once that step is run.
+Per-maneuver breakdown (`full` row, classified from the GT trajectory):
+
+| maneuver | n | ADE |
+| --- | ---: | ---: |
+| straight | 412 | 0.65 |
+| left | 30 | 0.86 |
+| right | 6 | 0.90 |
+| stop | 52 | 0.11 |
+
+Reading: the 0.61 m mean is pulled *down* by the 52 stop scenes (ADE 0.11 —
+predicting "stay put" for a stopped ego is nearly free, another shortcut), and
+the model is **weakest on turns** (left 0.86, right 0.90) — exactly where
+reading the scene (lanes, intersection geometry) should matter most, reinforcing
+the Stage 5 finding that the model barely uses scene-specific visual content.
+Right turns (n=6) are too few to be statistically reliable; cite with that
+caveat. Straight (n=412) at 0.65 is the representative "actually driving" number.
 
 Per-maneuver ADE (straight / left / right / stop) and the p25/p50/p75/p95
 distribution are produced by `analyze_ablations.py` from the `full` row and

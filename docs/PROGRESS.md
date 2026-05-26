@@ -15,7 +15,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
 | 3. Training adaptation | completed | full 28K LoRA done, eval_loss 0.24 |
 | 4. Baseline evaluation | completed | 500-sample headline: ADE 0.61 m / FDE 1.39 m / parse 1.00 |
-| 5. Methodology layer | in progress | ablation run done (5 rows); run `run_analyze_ablations.sh` for maneuver/percentiles |
+| 5. Methodology layer | completed | 5 ablation rows + maneuver + distribution all reported |
 | 6. Differentiator | in progress | Option A chosen (off-road rate); tooling landed, run `run_offroad.sh` on the server |
 | 7. Report + demo | pending | last |
 
@@ -278,13 +278,15 @@ and the model uses "an image" but not "the scene" (a wrong frame barely hurts,
 +0.02 m; a black frame does, +0.35 m). Full numbers + interpretation in
 `docs/JOURNEY.md` Appendix B.
 
-**Remaining**: run `run_analyze_ablations.sh` to add the per-maneuver breakdown
-and ADE percentiles, then copy those into Appendix B.
+**Maneuver / distribution (analyze step, 2026-05-20, done)** — full distribution
+is right-skewed (p50 0.48, p95 1.58). Per-maneuver ADE: straight 0.65 (n=412),
+left 0.86 (n=30), right 0.90 (n=6), stop 0.11 (n=52). The mean is pulled down by
+trivial stop scenes; the model is weakest on turns — where scene understanding
+should matter most. Full tables in `docs/JOURNEY.md` Appendix B.
 
 **Done when**: ≥ 7 rows reported and the ego-status shortcut is quantified
-(i.e. the `no_ego` and `black_image` gaps are measured against `full`) — the
-five at-inference rows are in; only the post-hoc maneuver / distribution tables
-remain.
+(i.e. the `no_ego` and `black_image` gaps are measured against `full`).
+**DONE** — five at-inference rows + maneuver + distribution + lat/long all in.
 
 ---
 
@@ -298,32 +300,43 @@ predicted path even on the road?" — which the Stage 5 ego-status shortcut has 
 particular reason to satisfy. That makes it the natural follow-up to the
 shortcut finding: a path can be ADE-close yet leave the drivable area.
 
+**Memory note**: the first cut used `NuScenes(version='v1.0-trainval', ...)` which
+deserialises every metadata table into Python dicts and needs ~8–15 GB of RAM —
+OOM-killed on a small CPU node. The current design is two-phase: a one-time
+**streaming** pose-index build (~500 MB peak) writes a tiny cache that the
+off-road eval consumes; the eval itself only loads `NuScenesMap` lazily per
+location, so it runs comfortably in <4 GB.
+
 **Tooling landed (code only, runs on the server)**:
 - `src/drivevlm_lite/eval/geometry.py` — ego→global transform + yaw-from-quaternion,
   pure python; `tests/test_geometry.py` (6 tests).
-- `scripts/eval/eval_offroad.py` — resolves each row's nuScenes `sample_data`
-  from the CAM_FRONT image basename, reads the ego global pose + map location,
-  lifts predicted/GT waypoints to the global frame, and queries
-  `NuScenesMap.layers_on_point` for `drivable_area`. Reports per-waypoint and
-  per-trajectory off-road rate for both prediction and GT (GT is the sanity
-  floor, should be ~0 %). Has a `--check-only` preflight.
-- `scripts/eval/run_offroad.sh` — launcher (`CHECK_ONLY=1` for preflight).
+- `scripts/eval/build_pose_index.py` — streams `sample_data.json` + `ego_pose.json`
+  via `ijson`, joins the small tables, writes a small CAM_FRONT
+  filename → (tx, ty, quat, location) cache. Run once.
+- `scripts/eval/eval_offroad.py` — reads the cache, lifts predicted/GT waypoints
+  to the global frame, queries `NuScenesMap.layers_on_point` for `drivable_area`,
+  reports per-waypoint and per-trajectory off-road rate for both prediction and
+  GT (GT ≈ 0 % is the sanity floor). Has a `--check-only` preflight.
+- `scripts/eval/run_build_pose_index.sh` and `scripts/eval/run_offroad.sh`
+  (`CHECK_ONLY=1` for preflight).
 
-**New external dependency** (must be on the server before the run):
-- `nuscenes-devkit` (`pip install nuscenes-devkit --break-system-packages`).
-- the `v1.0-trainval` metadata json tables (not just keyframe images).
-- the **map-expansion pack** (`nuScenes-map-expansion-v1.3`), unzipped so that
-  `<nuscenes_root>/maps/expansion/*.json` exists.
-- The preflight (`CHECK_ONLY=1`) verifies all three and prints exactly what is
-  missing before the full pass.
+**Server dependencies** (verified by preflight):
+- `nuscenes-devkit`: `pip install nuscenes-devkit --break-system-packages`.
+- `ijson` (for the one-time index build): `pip install ijson --break-system-packages`.
+- `v1.0-trainval` metadata json tables.
+- map-expansion pack so that `<nuscenes_root>/maps/expansion/*.json` exists.
 
 **Server-side commands**:
 
 ```bash
-# 0. Preflight (verifies devkit + trainval metadata + map-expansion pack):
+# 0. One-time pose index build (~500 MB RAM, ~1-2 min):
+bash scripts/eval/run_build_pose_index.sh
+# -> data/processed/cam_front_pose_index.json
+
+# 1. Preflight (devkit + map-expansion + pose index):
 CHECK_ONLY=1 bash scripts/eval/run_offroad.sh
 
-# 1. Full off-road pass on the Stage 5 'full' predictions (CPU):
+# 2. Full off-road pass on the Stage 5 'full' predictions (CPU, low RAM):
 PREDICTIONS=reports/ablation_matrix_v1_500/full/predictions.jsonl \
   OUT_DIR=reports/offroad_v1_500 bash scripts/eval/run_offroad.sh
 ```
