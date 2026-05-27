@@ -44,7 +44,7 @@ A focused open replication of a driving Vision-Language-Action (VLA) baseline on
 | nuScenes scene-disjoint val ADE (matched cell: 1 cam + full ego status) | 0.4 – 0.7 m |
 | ADE vision-only cell (1 cam, no ego status) | 1.5 – 3.0 m |
 | FDE (matched cell) | 0.8 – 1.4 m |
-| open-loop collision rate (GT bbox) | < 1 %  *(Stage 6/7 close — tooling landed 2026-05-27, run pending)* |
+| open-loop collision rate (GT bbox) | < 1 %  *(0.00 % on `full`; cross-tab with Stage 5 ablations in JOURNEY Appendix G)* |
 | off-road rate (HD map drivable area) | < 5 %  *(0.40 % on `full`, see Stage 6)* |
 | trajectory parse rate | 1.0  *(achieved)* |
 | ablation matrix rows | ≥ 11  *(5 ablation + 4 maneuver + 4 percentile + lat/long + 3 priors)* |

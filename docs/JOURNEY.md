@@ -362,15 +362,19 @@ frame; scored against the same 500-sample val subset as Stage 4.
 
 | prior | ADE | FDE | lon-ADE | lat-ADE | note |
 | --- | ---: | ---: | ---: | ---: | --- |
-| zero | _tbd_ | _tbd_ | _tbd_ | _tbd_ | always (0,0) — degenerate floor |
-| train_mean | _tbd_ | _tbd_ | _tbd_ | _tbd_ | per-timestep mean over 28 130 train trajectories |
-| train_median | _tbd_ | _tbd_ | _tbd_ | _tbd_ | per-timestep median |
+| zero | 9.21 | 15.74 | 9.16 | 0.51 | always (0,0) — degenerate floor |
+| train_mean | 4.75 | 8.26 | 4.59 | 0.52 | per-timestep mean over 28 130 train trajectories |
+| train_median | 4.72 | 8.20 | 4.56 | 0.51 | per-timestep median |
 
-Reading (filled in once `reports/priors_v1_500/prior_metrics.json` is run):
-the gap between `train_mean` / `train_median` and our `full` (0.61 m) is the
-"value added by the model" floor. The literature reference is ego-only MLP
-≈ 0.35 m on nuScenes; train-mean / median is a weaker prior than that (it
-ignores ego state entirely), so expect train-mean ADE well above 0.35 m.
+Reading: `train_mean` / `train_median` essentially predict "constant forward
+motion at training-average speed", landing around 4.7 m ADE. Our `full` model
+at 0.61 m beats this floor by **7.7×**; even `black_image` (the vision-masked
+ego-only cell, 0.96 m) beats it by **4.9×**. So the ego-status shortcut
+finding (Appendix B) is *real* but **not degenerate** — the model is doing
+materially more than emitting the training-average trajectory. The literature's
+ego-only MLP reference (~0.35 m on nuScenes) sits below our `train_mean` because
+that MLP has access to the *current* ego state at inference; our train-mean
+prior intentionally does not.
 
 ## Appendix G — Open-loop collision rate (Stage 6 closing, 2026-05-27)
 
@@ -383,15 +387,35 @@ sourced from `sample_annotation.json`. GT collision rate is the sanity floor
 
 | Stage 5 row | parse | ADE | waypoint collision | trajectory collision | GT traj collision |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| full | 1.00 | 0.61 | _tbd_ | _tbd_ | _tbd_ |
-| no_kinematics | 1.00 | 1.47 | _tbd_ | _tbd_ | _tbd_ |
-| no_ego | 0.10\* | 7.21\* | _tbd_\* | _tbd_\* | _tbd_ |
-| black_image | 1.00 | 0.96 | _tbd_ | _tbd_ | _tbd_ |
-| mismatch_image | 1.00 | 0.63 | _tbd_ | _tbd_ | _tbd_ |
+| full | 1.00 | 0.61 | 0.00 % | **0.00 %** | 0.00 % |
+| no_kinematics | 1.00 | 1.47 | 0.17 % | 1.00 % | 0.00 % |
+| no_ego | 0.10\* | 7.21\* | 0.33 %\* | 1.96 %\* | 0.00 % |
+| black_image | 1.00 | 0.96 | 0.40 % | **2.00 %** | 0.00 % |
+| mismatch_image | 1.00 | 0.63 | 0.03 % | 0.20 % | 0.00 % |
 
-Caveat: open-loop, so other agents follow their logged trajectories, not a
-reactive policy. That's why this is a sanity-style driving metric, not a
-real safety guarantee.
+Sanity: GT 0 % across the board confirms the ego→global transform, the
+collision-index population (`instance.json` join correctly applied — an earlier
+build missed this and produced an empty index), and the bbox-overlap test.
+
+**Findings (Stage 6 closes with three metrics in agreement):**
+
+8. **`full` predicts zero collisions across 500 trajectories.** On a par with
+   the cleanest open-loop numbers in the recent literature (UniAD / VAD report
+   ~0.1–0.5 %). A positive driving-credibility result.
+9. **Vision masking degrades collision rate too**, in lockstep with off-road:
+   `black_image` 2.00 % vs `full` 0.00 % (and `black_image` off-road 12.00 % vs
+   `full` 0.40 %). Same direction, same ordering.
+10. **Three-metric corroboration on the central claim.** ADE / off-road /
+    collision **all** show `mismatch_image ≈ full` (vision content
+    irrelevant), and **all** show `black_image >> full` (vision pathway
+    matters). Three independent open-loop metrics agreeing on the qualitative
+    pattern lifts the project's headline claim — *vision contributes
+    road-following + collision avoidance, not scene-specific trajectory
+    shaping* — from a single cross-tab into a triple-corroborated finding.
+
+Caveat (standard): open-loop, so other agents follow their *logged*
+trajectories rather than reacting to the ego's predicted path. Closed-loop
+collision rate is out of v1 scope.
 
 ## Appendix D — Candidate future directions (post-v1)
 

@@ -21,6 +21,7 @@
 /CLAUDE_DISCUSSION_NEXT_STEPS.md
 /DriveVLM-Lite_agent_prompt.md
 /docs/REPORT.md
+/V1_INTERVIEW_SUMMARY.md
 
 # Archived prototype folders should not be committed if recreated locally.
 /oldversion/
