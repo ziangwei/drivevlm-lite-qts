@@ -70,7 +70,10 @@ def main() -> None:
     args = parser.parse_args()
 
     meta = args.nuscenes_root / args.version
-    for name in ("sample_data.json", "sample.json", "sample_annotation.json", "category.json"):
+    for name in (
+        "sample_data.json", "sample.json", "sample_annotation.json",
+        "category.json", "instance.json",
+    ):
         if not (meta / name).is_file():
             sys.exit(f"missing metadata table: {meta / name}")
 
@@ -113,21 +116,32 @@ def main() -> None:
         needed_samples.update(chain)
     print(f"  needing annotations for {len(needed_samples)} future samples")
 
-    # Pass 3 — load category.json, build token -> name.
+    # Pass 3 — load category.json + instance.json.
+    # IMPORTANT (nuScenes schema): sample_annotation has NO category_token; it
+    # has instance_token. The category lives on the instance. So we must take
+    # the extra hop sample_annotation.instance_token -> instance.category_token
+    # -> category.name. An earlier version of this script went straight from
+    # sample_annotation to category and filtered out every record.
     with (meta / "category.json").open("r", encoding="utf-8") as handle:
         cat_name = {rec["token"]: rec["name"] for rec in json.load(handle)}
+    with (meta / "instance.json").open("r", encoding="utf-8") as handle:
+        instance_to_cat = {rec["token"]: rec["category_token"] for rec in json.load(handle)}
+    print(f"loaded {len(cat_name)} categories, {len(instance_to_cat)} instances")
 
     # Pass 4 — stream sample_annotation.json. Keep only annotations in our
-    # needed sample set whose category is safety-relevant.
+    # needed sample set whose (instance -> category) is safety-relevant.
     print(f"streaming {meta/'sample_annotation.json'} (large) ...")
     by_sample: dict[str, list[dict[str, Any]]] = {s: [] for s in needed_samples}
-    kept = 0
+    seen = matched_sample = kept = 0
     with (meta / "sample_annotation.json").open("rb") as handle:
         for rec in ijson.items(handle, "item"):
+            seen += 1
             stoken = rec.get("sample_token")
             if stoken not in by_sample:
                 continue
-            cname = cat_name.get(rec.get("category_token", ""), "")
+            matched_sample += 1
+            cat_tok = instance_to_cat.get(rec.get("instance_token", ""), "")
+            cname = cat_name.get(cat_tok, "")
             if not cname.startswith(SAFETY_PREFIXES):
                 continue
             tx, ty = float(rec["translation"][0]), float(rec["translation"][1])
@@ -139,7 +153,9 @@ def main() -> None:
                 "l": sl, "w": sw, "yaw": yaw,
             })
             kept += 1
-    print(f"  kept {kept} safety-relevant agent annotations")
+    print(f"  streamed {seen} annotations total, "
+          f"{matched_sample} in needed samples, "
+          f"{kept} safety-relevant kept")
 
     # Build final per-fname structure.
     out: dict[str, dict[str, Any]] = {}
