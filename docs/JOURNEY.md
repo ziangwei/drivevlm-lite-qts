@@ -354,6 +354,45 @@ does. The full Stage 5 × off-road cross-tab is the cleanest one-table story:
   usefully on (3), is the methodology contribution this project adds on top of
   the Impromptu replication.
 
+## Appendix F — Prior baselines (Stage 5 closing, 2026-05-27)
+
+Three-tier prior baseline computed directly from train.jsonl GT, with no
+model in the loop. Each prior is a fixed 6-waypoint trajectory in the ego
+frame; scored against the same 500-sample val subset as Stage 4.
+
+| prior | ADE | FDE | lon-ADE | lat-ADE | note |
+| --- | ---: | ---: | ---: | ---: | --- |
+| zero | _tbd_ | _tbd_ | _tbd_ | _tbd_ | always (0,0) — degenerate floor |
+| train_mean | _tbd_ | _tbd_ | _tbd_ | _tbd_ | per-timestep mean over 28 130 train trajectories |
+| train_median | _tbd_ | _tbd_ | _tbd_ | _tbd_ | per-timestep median |
+
+Reading (filled in once `reports/priors_v1_500/prior_metrics.json` is run):
+the gap between `train_mean` / `train_median` and our `full` (0.61 m) is the
+"value added by the model" floor. The literature reference is ego-only MLP
+≈ 0.35 m on nuScenes; train-mean / median is a weaker prior than that (it
+ignores ego state entirely), so expect train-mean ADE well above 0.35 m.
+
+## Appendix G — Open-loop collision rate (Stage 6 closing, 2026-05-27)
+
+Open-loop collision rate computed by transforming predicted (and GT)
+waypoints into the global frame (using the same pose index as Stage 6) and
+testing each future-timestep position against the 2-D rotated bounding boxes
+of every other agent in safety-relevant categories (vehicle.* + human.*)
+sourced from `sample_annotation.json`. GT collision rate is the sanity floor
+(should be near zero).
+
+| Stage 5 row | parse | ADE | waypoint collision | trajectory collision | GT traj collision |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| full | 1.00 | 0.61 | _tbd_ | _tbd_ | _tbd_ |
+| no_kinematics | 1.00 | 1.47 | _tbd_ | _tbd_ | _tbd_ |
+| no_ego | 0.10\* | 7.21\* | _tbd_\* | _tbd_\* | _tbd_ |
+| black_image | 1.00 | 0.96 | _tbd_ | _tbd_ | _tbd_ |
+| mismatch_image | 1.00 | 0.63 | _tbd_ | _tbd_ | _tbd_ |
+
+Caveat: open-loop, so other agents follow their logged trajectories, not a
+reactive policy. That's why this is a sanity-style driving metric, not a
+real safety guarantee.
+
 ## Appendix D — Candidate future directions (post-v1)
 
 A 2026-05-20 external review (Gemini) suggested four ways to deepen the project

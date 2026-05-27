@@ -44,10 +44,10 @@ A focused open replication of a driving Vision-Language-Action (VLA) baseline on
 | nuScenes scene-disjoint val ADE (matched cell: 1 cam + full ego status) | 0.4 – 0.7 m |
 | ADE vision-only cell (1 cam, no ego status) | 1.5 – 3.0 m |
 | FDE (matched cell) | 0.8 – 1.4 m |
-| open-loop collision rate (GT bbox) | < 1 % |
-| off-road rate (HD map drivable area) | < 5 % |
-| trajectory parse rate | 1.0 |
-| ablation matrix rows | ≥ 11 |
+| open-loop collision rate (GT bbox) | < 1 %  *(Stage 6/7 close — tooling landed 2026-05-27, run pending)* |
+| off-road rate (HD map drivable area) | < 5 %  *(0.40 % on `full`, see Stage 6)* |
+| trajectory parse rate | 1.0  *(achieved)* |
+| ablation matrix rows | ≥ 11  *(5 ablation + 4 maneuver + 4 percentile + lat/long + 3 priors)* |
 
 After Stage 1 we know Impromptu uses **single CAM_FRONT + full ego status (velocity, acceleration, steering)**, not 6 cameras and not vision-only. Their 0.34 m L2 is a shortcut-heavy number. Our v1 reports two cells side-by-side: the matched cell (replicates their setup) and the vision-only cell (the genuine differentiator). The methodology gain is the matrix between them.
 

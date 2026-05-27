@@ -15,9 +15,9 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
 | 3. Training adaptation | completed | full 28K LoRA done, eval_loss 0.24 |
 | 4. Baseline evaluation | completed | 500-sample headline: ADE 0.61 m / FDE 1.39 m / parse 1.00 |
-| 5. Methodology layer | completed | 5 ablation rows + maneuver + distribution all reported |
-| 6. Differentiator | completed | off-road × Stage 5 cross-tab: full 0.4 % / black 12 % / mismatch 0.4 % — vision does road-following, not scene reading |
-| 7. Report + demo | in progress | report drafted locally (gitignored); BEV visualization notebook still to do |
+| 5. Methodology layer | completed | 5 ablation rows + maneuver + distribution + prior baselines |
+| 6. Differentiator | completed | driving-semantic metrics: off-road cross-tab + open-loop collision rate |
+| 7. Report + demo | in progress | report drafted locally (gitignored); BEV visualization notebook deferred |
 
 Candidate v2/v3 research directions (out of v1 scope, tracked for after the
 report) are in `docs/FUTURE_DIRECTIONS.md`.
@@ -288,6 +288,23 @@ should matter most. Full tables in `docs/JOURNEY.md` Appendix B.
 (i.e. the `no_ego` and `black_image` gaps are measured against `full`).
 **DONE** — five at-inference rows + maneuver + distribution + lat/long all in.
 
+### Stage 5 — Prior baselines (closing a spec commitment, 2026-05-27)
+
+The locked spec called for three-tier prior baselines (zero / train-mean /
+train-median) and they were never produced. Added as Stage 5 finishing work:
+`scripts/eval/eval_priors.py` computes each prior directly from the train
+JSONL (no model, no GPU) and scores against val GT with the same
+ADE / FDE / lon / lat helpers. Headline expectation: train-mean / -median should
+land near the Ego-MLP literature number (~0.35 m); `full` (0.61 m) and
+`black_image` (0.96 m) read against those.
+
+Server-side command (CPU, seconds):
+
+```bash
+LIMIT_VAL=500 bash scripts/eval/run_priors.sh
+# -> reports/priors_v1_500/prior_metrics.json
+```
+
 ---
 
 ## Stage 6 — Differentiator
@@ -356,6 +373,39 @@ another real scene does not. Full cross-tab + interpretation in
 
 **Done when**: a pred vs GT off-road rate is reported on the 500-sample subset
 (GT near 0 %) and added to the results table with a clear claim. **DONE.**
+
+### Stage 6 — Open-loop collision rate (driving-semantic metric, 2026-05-27)
+
+Sister metric to off-road and the other locked spec target that was missing.
+Off-road tests "is the predicted path on the road?"; collision tests "does
+the predicted path drive through any other agent?". Same infra reused: pose
+index from Stage 6, ego→global from `geometry.py`. New pieces:
+`src/drivevlm_lite/eval/bbox.py` (2-D rotated-rect point-in-test, pure python,
+`tests/test_bbox.py` 7 tests pass), `scripts/eval/build_collision_index.py`
+(streams `sample_annotation.json` filtered to `vehicle.*` + `human.*`, walks
+`sample.next` 6 times per val sample to collect agent boxes for t = 0.5–3.0 s),
+`scripts/eval/eval_collision.py` (point-in-bbox check at each future timestep,
+reports per-waypoint + per-trajectory collision for pred and GT). All CPU.
+
+Server-side commands:
+
+```bash
+# 0. One-time build of the collision index (~3-5 min, peak ~500 MB RAM):
+bash scripts/eval/run_build_collision_index.sh
+
+# 1. Collision rate on the Stage 5 'full' predictions (and any other variant):
+PREDICTIONS=reports/ablation_matrix_v1_500/full/predictions.jsonl \
+  OUT_DIR=reports/collision_v1_500/full \
+  bash scripts/eval/run_collision.sh
+```
+
+Output: `reports/collision_v1_500/<row>/{collision_metrics.json,collision_per_sample.jsonl}`.
+GT collision rate (sanity floor) should be very close to 0 % — by construction
+the logged ego trajectory does not collide with logged other-agent trajectories
+beyond annotation noise.
+
+**Done when**: pred + GT collision rate reported on the 500-sample subset,
+matched against the off-road table, and added to the results.
 
 ---
 
