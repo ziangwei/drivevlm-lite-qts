@@ -14,8 +14,10 @@ MODEL="${MODEL:-models/Qwen3-VL-4B-Instruct}"
 ADAPTER="${ADAPTER:-checkpoints/qwen3vl4b_lora_impromptu_v1}"
 VAL_FILE="${VAL_FILE:-data/processed_vla_impromptu/val.jsonl}"
 OUT_DIR="${OUT_DIR:-reports/eval_vla_impromptu_v1}"
-LIMIT="${LIMIT:-100}"
+LIMIT="${LIMIT:-0}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
+SAMPLE_MODE="${SAMPLE_MODE:-random}"
+SEED="${SEED:-42}"
 GPU_ID="${GPU_ID:-0}"
 
 export CUDA_VISIBLE_DEVICES="${GPU_ID}"
@@ -32,6 +34,8 @@ export CUDA_VISIBLE_DEVICES="${GPU_ID}"
   echo "out_dir=${OUT_DIR}"
   echo "limit=${LIMIT}"
   echo "max_new_tokens=${MAX_NEW_TOKENS}"
+  echo "sample_mode=${SAMPLE_MODE}"
+  echo "seed=${SEED}"
   echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
   echo
   PYTHONPATH=src python scripts/eval/eval_vla.py \
@@ -40,7 +44,9 @@ export CUDA_VISIBLE_DEVICES="${GPU_ID}"
     --val-file "${VAL_FILE}" \
     --out-dir "${OUT_DIR}" \
     --limit "${LIMIT}" \
-    --max-new-tokens "${MAX_NEW_TOKENS}"
+    --max-new-tokens "${MAX_NEW_TOKENS}" \
+    --sample-mode "${SAMPLE_MODE}" \
+    --seed "${SEED}"
 } 2>&1 | tee "${LOG_PATH}"
 
 echo "log=${LOG_PATH}"

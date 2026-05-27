@@ -16,6 +16,17 @@ Outputs land under ``--out-dir``:
   waypoints, GT waypoints, and per-sample metrics.
 - ``metrics.json``     — aggregate ADE / FDE / parse_rate / lat / long.
 
+Subset selection (``--limit > 0``) is controlled by ``--sample-mode``:
+
+- ``random``     — shuffle all rows with ``Random(seed)`` then take ``limit``.
+                   Default; reproducible across runs for the same seed.
+- ``prefix``     — legacy ``rows[:limit]``. val.jsonl is sorted by log+time,
+                   so this collapses to one or two scenes — kept for back-compat
+                   but not the recommended mode.
+- ``stratified`` — group rows by log_id (parsed from CAM_FRONT filename) and
+                   take ``limit / n_logs`` from each, shuffled per-log with
+                   ``Random(seed)``. Useful for log-balanced debug runs.
+
 Single-GPU by default. Multi-GPU is launched separately via the shell
 wrapper (passes ``--num-gpus 2`` and lets the Trainer / accelerate
 inferences set ``CUDA_VISIBLE_DEVICES``); the python script itself runs
@@ -26,8 +37,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -38,13 +51,22 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from drivevlm_lite.data.jsonl import read_jsonl, write_jsonl
-from drivevlm_lite.eval.ablations import ABLATIONS, ablation_plan, transform_user_text
+from drivevlm_lite.eval.ablations import (
+    ABLATIONS,
+    ablation_plan,
+    build_donor_index,
+    parse_cam_front_path,
+    transform_user_text,
+)
 from drivevlm_lite.eval.impromptu_trajectory import (
     ade,
     fde,
     parse_planning_text,
     split_lateral_longitudinal_ade,
 )
+
+
+SAMPLE_MODES = ("prefix", "random", "stratified")
 
 
 def _user_text(row: dict[str, Any]) -> str:
@@ -59,6 +81,61 @@ def _assistant_text(row: dict[str, Any]) -> str:
         if msg.get("role") == "assistant":
             return str(msg.get("content", ""))
     return ""
+
+
+def _row_first_image(row: dict[str, Any]) -> str:
+    paths = row.get("images") or []
+    return str(paths[0]) if paths else ""
+
+
+def _select_subset(
+    rows: list[dict[str, Any]],
+    mode: str,
+    limit: int,
+    seed: int,
+) -> list[dict[str, Any]]:
+    """Pick a subset of ``rows`` according to ``mode`` and ``limit``.
+
+    ``limit <= 0`` or ``limit >= len(rows)`` returns ``rows`` unchanged.
+    Returned rows are kept in their original val.jsonl order so the
+    per-sample predictions remain easy to cross-reference with the file.
+    """
+    n = len(rows)
+    if limit <= 0 or limit >= n:
+        return list(rows)
+    if mode == "prefix":
+        return rows[:limit]
+    rng = random.Random(seed)
+    if mode == "random":
+        idxs = list(range(n))
+        rng.shuffle(idxs)
+        picked = sorted(idxs[:limit])
+        return [rows[i] for i in picked]
+    if mode == "stratified":
+        groups: dict[str, list[int]] = defaultdict(list)
+        for i, row in enumerate(rows):
+            path = _row_first_image(row)
+            try:
+                log, _ = parse_cam_front_path(path)
+            except ValueError:
+                log = "_unknown"
+            groups[log].append(i)
+        n_groups = max(1, len(groups))
+        per_group = max(1, limit // n_groups)
+        picked: list[int] = []
+        for log in sorted(groups):
+            group_idxs = list(groups[log])
+            rng.shuffle(group_idxs)
+            picked.extend(group_idxs[:per_group])
+        # Top up rounding shortfall (rare) with a stable random tail.
+        if len(picked) < limit:
+            taken = set(picked)
+            remaining = [i for i in range(n) if i not in taken]
+            rng.shuffle(remaining)
+            picked.extend(remaining[: limit - len(picked)])
+        picked = sorted(picked[:limit])
+        return [rows[i] for i in picked]
+    raise ValueError(f"unknown sample-mode {mode!r}; expected one of {SAMPLE_MODES}")
 
 
 def _load_images(paths: list[str]) -> list[Image.Image]:
@@ -92,12 +169,20 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", default=256, type=int)
     parser.add_argument("--ablation", default="full", choices=ABLATIONS,
         help="Stage 5 input corruption applied at inference time (default: full baseline).")
+    parser.add_argument("--sample-mode", default="random", choices=SAMPLE_MODES,
+        help="How to pick a subset when --limit > 0. random+seed=42 is the default "
+             "for reproducibility; prefix is the legacy rows[:limit] behaviour.")
+    parser.add_argument("--seed", default=42, type=int,
+        help="RNG seed for --sample-mode and the image-swap donor selection.")
     parser.add_argument("--num-gpus", default=1, type=int,
         help="Accepted for interface uniformity; this script uses one GPU.")
     args = parser.parse_args()
 
     plan = ablation_plan(args.ablation)
-    print(f"ablation={args.ablation}  text={plan.text}  image={plan.image}")
+    print(
+        f"ablation={args.ablation}  text={plan.text}  image={plan.image}  "
+        f"sample_mode={args.sample_mode}  seed={args.seed}"
+    )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -125,11 +210,28 @@ def main() -> None:
     model = model.to(device)
     model.eval()
 
-    rows = read_jsonl(args.val_file)
-    available_rows = len(rows)
-    if args.limit > 0:
-        rows = rows[: args.limit]
-    print(f"val_file={args.val_file}  available={available_rows}  evaluating={len(rows)}")
+    all_rows = read_jsonl(args.val_file)
+    available_rows = len(all_rows)
+    rows = _select_subset(all_rows, args.sample_mode, args.limit, args.seed)
+    print(
+        f"val_file={args.val_file}  available={available_rows}  "
+        f"evaluating={len(rows)}  mode={args.sample_mode}"
+    )
+
+    # Donor index for the two image-swap ablations is precomputed from the
+    # post-subset row list so indices line up with the loop below.
+    donor = None
+    if plan.image in ("time_shifted", "true_mismatch"):
+        donor_paths = [_row_first_image(r) for r in rows]
+        donor = build_donor_index(donor_paths, seed=args.seed)
+        n_missing = sum(1 for j in getattr(donor, plan.image) if j < 0)
+        if n_missing:
+            print(
+                f"WARNING: {n_missing}/{len(rows)} rows have no eligible "
+                f"{plan.image} donor in this subset; falling back to the "
+                "row's own image and flagging donor_missing=true in "
+                "predictions.jsonl."
+            )
 
     predictions: list[dict[str, Any]] = []
     parse_ok = 0
@@ -140,18 +242,30 @@ def main() -> None:
     lat_values: list[float] = []
     latencies: list[float] = []
 
-    n_rows = len(rows)
     for idx, row in enumerate(tqdm(rows, desc="VLA eval")):
         question = transform_user_text(_user_text(row), args.ablation)
         gt_text = _assistant_text(row)
         gt_waypoints = parse_planning_text(gt_text)
 
         image_paths = [str(p) for p in row.get("images", [])]
-        if plan.image == "mismatch":
-            # Pair this row's text with a different scene's image so we can
-            # tell whether the model reads the current frame at all.
-            donor = rows[(idx + 1) % n_rows]
-            load_paths = [str(p) for p in donor.get("images", [])]
+        donor_image: str | None = None
+        donor_missing = False
+        if plan.image == "time_shifted":
+            j = donor.time_shifted[idx]
+            if j < 0:
+                load_paths = image_paths
+                donor_missing = True
+            else:
+                load_paths = [str(p) for p in rows[j].get("images", [])]
+                donor_image = load_paths[0] if load_paths else None
+        elif plan.image == "true_mismatch":
+            j = donor.true_mismatch[idx]
+            if j < 0:
+                load_paths = image_paths
+                donor_missing = True
+            else:
+                load_paths = [str(p) for p in rows[j].get("images", [])]
+                donor_image = load_paths[0] if load_paths else None
         else:
             load_paths = image_paths
         images = _load_images(load_paths)
@@ -185,6 +299,10 @@ def main() -> None:
             "gt_waypoints": gt_waypoints,
             "latency_s": latency,
         }
+        if donor_image is not None:
+            per_sample["donor_image"] = donor_image
+        if donor_missing:
+            per_sample["donor_missing"] = True
 
         if pred_waypoints and gt_waypoints:
             parse_ok += 1
@@ -217,7 +335,10 @@ def main() -> None:
         "model": args.model,
         "adapter": args.adapter,
         "ablation": args.ablation,
+        "sample_mode": args.sample_mode,
+        "seed": args.seed,
         "count": n,
+        "available_rows": available_rows,
         "parse_rate": parse_ok / max(1, n),
         "parse_full6_rate": parse_full6 / max(1, n),
         "ade_mean": (sum(ade_values) / len(ade_values)) if ade_values else None,
