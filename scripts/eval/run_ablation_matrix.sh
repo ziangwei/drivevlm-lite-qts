@@ -26,7 +26,9 @@ set -euo pipefail
 mkdir -p logs
 RUN_NAME="${RUN_NAME:-ablation_matrix}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
-LOG_PATH="logs/${STAMP}_${RUN_NAME}.log"
+# GPU_ID is encoded into the log filename so two concurrent launches (one
+# per GPU, half the ablations each) don't fight over the same file.
+LOG_PATH="logs/${STAMP}_${RUN_NAME}_gpu${GPU_ID:-0}.log"
 
 MODEL="${MODEL:-models/Qwen3-VL-4B-Instruct}"
 ADAPTER="${ADAPTER:-checkpoints/qwen3vl4b_lora_impromptu_v1}"

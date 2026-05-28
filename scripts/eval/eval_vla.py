@@ -13,8 +13,21 @@ For each row of the val JSONL the script:
 Outputs land under ``--out-dir``:
 
 - ``predictions.jsonl`` — one row per sample with raw output, parsed
-  waypoints, GT waypoints, and per-sample metrics.
-- ``metrics.json``     — aggregate ADE / FDE / parse_rate / lat / long.
+  waypoints, GT waypoints, and per-sample metrics. Written in line-buffered
+  append mode so a mid-run crash never loses prior samples.
+- ``run_meta.json``    — sidecar capturing the run's args (val_file,
+  ablation, sample_mode, seed, limit, max_new_tokens). Resume refuses to
+  proceed if these drift, so two incompatible runs cannot quietly merge
+  into the same predictions file.
+- ``metrics.json``     — aggregate ADE / FDE / parse_rate / lat / long,
+  recomputed at the end from the full predictions.jsonl.
+
+Resume behaviour (default on):
+  - If ``predictions.jsonl`` already exists in ``--out-dir`` and
+    ``run_meta.json`` matches the current args, samples whose ids are
+    already present are skipped. A partial trailing line from the previous
+    crash is truncated automatically.
+  - Pass ``--no-resume`` to wipe and start over.
 
 Subset selection (``--limit > 0``) is controlled by ``--sample-mode``:
 
@@ -26,11 +39,6 @@ Subset selection (``--limit > 0``) is controlled by ``--sample-mode``:
 - ``stratified`` — group rows by log_id (parsed from CAM_FRONT filename) and
                    take ``limit / n_logs`` from each, shuffled per-log with
                    ``Random(seed)``. Useful for log-balanced debug runs.
-
-Single-GPU by default. Multi-GPU is launched separately via the shell
-wrapper (passes ``--num-gpus 2`` and lets the Trainer / accelerate
-inferences set ``CUDA_VISIBLE_DEVICES``); the python script itself runs
-on whatever device PyTorch sees.
 """
 
 from __future__ import annotations
@@ -50,7 +58,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from drivevlm_lite.data.jsonl import read_jsonl, write_jsonl
+from drivevlm_lite.data.jsonl import read_jsonl
 from drivevlm_lite.eval.ablations import (
     ABLATIONS,
     ablation_plan,
@@ -63,6 +71,11 @@ from drivevlm_lite.eval.impromptu_trajectory import (
     fde,
     parse_planning_text,
     split_lateral_longitudinal_ade,
+)
+from drivevlm_lite.eval.resume import (
+    check_meta_compatible,
+    read_jsonl_robust,
+    truncate_to_last_newline,
 )
 
 
@@ -88,18 +101,19 @@ def _row_first_image(row: dict[str, Any]) -> str:
     return str(paths[0]) if paths else ""
 
 
-def _select_subset(
-    rows: list[dict[str, Any]],
-    mode: str,
-    limit: int,
-    seed: int,
-) -> list[dict[str, Any]]:
-    """Pick a subset of ``rows`` according to ``mode`` and ``limit``.
+def _row_key(row: dict[str, Any], idx: int) -> str:
+    """Stable key used to skip already-done rows on resume.
 
-    ``limit <= 0`` or ``limit >= len(rows)`` returns ``rows`` unchanged.
-    Returned rows are kept in their original val.jsonl order so the
-    per-sample predictions remain easy to cross-reference with the file.
+    Prefers the dataset's own ``id`` / ``sample_id``; falls back to the
+    subset position (which is itself deterministic for a given sample-mode
+    + seed + val.jsonl, so it survives a resume).
     """
+    rid = row.get("id") or row.get("sample_id")
+    return str(rid) if rid is not None else f"__idx_{idx}"
+
+
+def _select_subset(rows, mode, limit, seed):
+    """Pick a subset of ``rows`` according to ``mode`` and ``limit``."""
     n = len(rows)
     if limit <= 0 or limit >= n:
         return list(rows)
@@ -127,7 +141,6 @@ def _select_subset(
             group_idxs = list(groups[log])
             rng.shuffle(group_idxs)
             picked.extend(group_idxs[:per_group])
-        # Top up rounding shortfall (rare) with a stable random tail.
         if len(picked) < limit:
             taken = set(picked)
             remaining = [i for i in range(n) if i not in taken]
@@ -138,25 +151,77 @@ def _select_subset(
     raise ValueError(f"unknown sample-mode {mode!r}; expected one of {SAMPLE_MODES}")
 
 
-def _load_images(paths: list[str]) -> list[Image.Image]:
+def _load_images(paths):
     return [Image.open(p).convert("RGB") for p in paths]
 
 
-def _blacken(images: list[Image.Image]) -> list[Image.Image]:
-    """Return all-zero (black) images of matching size — the vision-masked
-    condition. Text (full ego status) is left intact by the caller."""
+def _blacken(images):
+    """All-zero (black) images of matching size — the vision-masked condition."""
     return [Image.new("RGB", img.size, (0, 0, 0)) for img in images]
 
 
-def _build_prompt(processor, question: str, images: list[Image.Image]) -> str:
-    user_content: list[dict[str, Any]] = [{"type": "image", "image": img} for img in images]
+def _build_prompt(processor, question, images):
+    user_content = [{"type": "image", "image": img} for img in images]
     user_content.append({"type": "text", "text": question})
     messages = [{"role": "user", "content": user_content}]
     return processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 
-def _to_device(inputs: dict[str, Any], device: str) -> dict[str, Any]:
+def _to_device(inputs, device):
     return {k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()}
+
+
+def _write_metrics(pred_path: Path, args: argparse.Namespace, available_rows: int) -> None:
+    """Recompute aggregate metrics from the full predictions.jsonl on disk.
+
+    Reading at the end (rather than accumulating in memory during the loop)
+    means the numbers stay correct after a resume that merged old + new rows.
+    """
+    all_preds, _ = read_jsonl_robust(pred_path)
+    n = len(all_preds)
+    ade_v = [r["ade"] for r in all_preds if r.get("ade") is not None]
+    fde_v = [r["fde"] for r in all_preds if r.get("fde") is not None]
+    lon_v = [r["lon_ade"] for r in all_preds if r.get("lon_ade") is not None]
+    lat_v = [r["lat_ade"] for r in all_preds if r.get("lat_ade") is not None]
+    lat_s = [r["latency_s"] for r in all_preds if r.get("latency_s") is not None]
+    parse_ok = sum(
+        1 for r in all_preds if r.get("pred_waypoints") and r.get("gt_waypoints")
+    )
+    parse_full6 = sum(
+        1 for r in all_preds
+        if r.get("pred_waypoints")
+        and len(r["pred_waypoints"]) >= 6
+        and r.get("gt_waypoints")
+    )
+    metrics = {
+        "val_file": str(args.val_file),
+        "model": args.model,
+        "adapter": args.adapter,
+        "ablation": args.ablation,
+        "sample_mode": args.sample_mode,
+        "seed": args.seed,
+        "count": n,
+        "available_rows": available_rows,
+        "parse_rate": parse_ok / max(1, n),
+        "parse_full6_rate": parse_full6 / max(1, n),
+        "ade_mean": (sum(ade_v) / len(ade_v)) if ade_v else None,
+        "fde_mean": (sum(fde_v) / len(fde_v)) if fde_v else None,
+        "lon_ade_mean": (sum(lon_v) / len(lon_v)) if lon_v else None,
+        "lat_ade_mean": (sum(lat_v) / len(lat_v)) if lat_v else None,
+        "latency_mean_s": (sum(lat_s) / len(lat_s)) if lat_s else None,
+        "max_new_tokens": args.max_new_tokens,
+    }
+    out_dir = pred_path.parent
+    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(json.dumps(metrics, indent=2))
+    print(f"\nWrote predictions to {pred_path}")
+    print(f"Wrote metrics to {out_dir / 'metrics.json'}")
+
+
+def _count_donor_missing(donor, image_kind: str) -> int:
+    """Count -1 sentinels in the relevant donor list."""
+    series = donor.time_shifted if image_kind == "time_shifted" else donor.true_mismatch
+    return sum(1 for j in series if j < 0)
 
 
 def main() -> None:
@@ -174,6 +239,9 @@ def main() -> None:
              "for reproducibility; prefix is the legacy rows[:limit] behaviour.")
     parser.add_argument("--seed", default=42, type=int,
         help="RNG seed for --sample-mode and the image-swap donor selection.")
+    parser.add_argument("--no-resume", action="store_true",
+        help="Wipe any existing predictions.jsonl + run_meta.json in --out-dir "
+             "and start fresh. Default behaviour resumes from prior progress.")
     parser.add_argument("--num-gpus", default=1, type=int,
         help="Accepted for interface uniformity; this script uses one GPU.")
     args = parser.parse_args()
@@ -185,7 +253,95 @@ def main() -> None:
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    pred_path = args.out_dir / "predictions.jsonl"
+    meta_path = args.out_dir / "run_meta.json"
 
+    # ----- Resume handshake ---------------------------------------------------
+    current_meta = {
+        "val_file": str(args.val_file),
+        "ablation": args.ablation,
+        "sample_mode": args.sample_mode,
+        "seed": args.seed,
+        "limit": args.limit,
+        "max_new_tokens": args.max_new_tokens,
+    }
+    if args.no_resume:
+        for p in (pred_path, meta_path):
+            if p.exists():
+                p.unlink()
+        print("--no-resume: wiped predictions.jsonl and run_meta.json (if any)")
+    else:
+        # Refuse to silently merge into a predictions.jsonl from a different
+        # run (e.g. seed change, ablation change). Force the user to choose.
+        if pred_path.exists() and pred_path.stat().st_size > 0 and not meta_path.exists():
+            raise SystemExit(
+                f"{pred_path} exists but {meta_path} does not -- cannot verify "
+                "the existing file was produced by a compatible run. Pass "
+                "--no-resume to wipe and restart, or change --out-dir."
+            )
+        mismatch = check_meta_compatible(meta_path, current_meta)
+        if mismatch:
+            raise SystemExit(
+                mismatch
+                + "\nPass --no-resume to wipe, or use a different --out-dir."
+            )
+
+    n_truncated = truncate_to_last_newline(pred_path)
+    if n_truncated:
+        print(
+            f"resume: truncated {n_truncated} bytes of partial trailing line "
+            f"in {pred_path}"
+        )
+    existing, n_bad = read_jsonl_robust(pred_path)
+    if n_bad:
+        print(f"resume: skipped {n_bad} malformed line(s) in {pred_path}")
+    done_keys: set[str] = set()
+    for r in existing:
+        rid = r.get("id") or r.get("sample_id")
+        if rid is not None:
+            done_keys.add(str(rid))
+    if existing:
+        print(f"resume: {len(existing)} samples already present, will skip those ids")
+
+    meta_path.write_text(json.dumps(current_meta, indent=2), encoding="utf-8")
+
+    # ----- Load val + select subset ------------------------------------------
+    all_rows = read_jsonl(args.val_file)
+    available_rows = len(all_rows)
+    rows = _select_subset(all_rows, args.sample_mode, args.limit, args.seed)
+    print(
+        f"val_file={args.val_file}  available={available_rows}  "
+        f"in_subset={len(rows)}  mode={args.sample_mode}  seed={args.seed}"
+    )
+
+    # Donor index for image-swap ablations. Built deterministically from the
+    # post-subset row list, so it's identical on resume.
+    donor = None
+    if plan.image in ("time_shifted", "true_mismatch"):
+        donor_paths = [_row_first_image(r) for r in rows]
+        donor = build_donor_index(donor_paths, seed=args.seed)
+        n_missing = _count_donor_missing(donor, plan.image)
+        if n_missing:
+            print(
+                f"WARNING: {n_missing}/{len(rows)} rows have no eligible "
+                f"{plan.image} donor in this subset; falling back to the "
+                "row's own image and flagging donor_missing=true in "
+                "predictions.jsonl."
+            )
+
+    # ----- Decide what's left + short-circuit if everything done -------------
+    n_done_in_subset = sum(
+        1 for idx, row in enumerate(rows) if _row_key(row, idx) in done_keys
+    )
+    n_remaining = len(rows) - n_done_in_subset
+    print(f"resume status: {n_done_in_subset} done / {n_remaining} remaining")
+
+    if n_remaining == 0:
+        print("nothing to do -- only writing metrics.json")
+        _write_metrics(pred_path, args, available_rows)
+        return
+
+    # ----- Model load (only when there's actual work) -------------------------
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -210,148 +366,97 @@ def main() -> None:
     model = model.to(device)
     model.eval()
 
-    all_rows = read_jsonl(args.val_file)
-    available_rows = len(all_rows)
-    rows = _select_subset(all_rows, args.sample_mode, args.limit, args.seed)
-    print(
-        f"val_file={args.val_file}  available={available_rows}  "
-        f"evaluating={len(rows)}  mode={args.sample_mode}"
-    )
+    # ----- Eval loop (append-only, line-buffered) ----------------------------
+    with pred_path.open("a", encoding="utf-8", buffering=1) as out_handle:
+        for idx, row in enumerate(tqdm(rows, desc="VLA eval")):
+            row_key = _row_key(row, idx)
+            if row_key in done_keys:
+                continue
 
-    # Donor index for the two image-swap ablations is precomputed from the
-    # post-subset row list so indices line up with the loop below.
-    donor = None
-    if plan.image in ("time_shifted", "true_mismatch"):
-        donor_paths = [_row_first_image(r) for r in rows]
-        donor = build_donor_index(donor_paths, seed=args.seed)
-        n_missing = sum(1 for j in getattr(donor, plan.image) if j < 0)
-        if n_missing:
-            print(
-                f"WARNING: {n_missing}/{len(rows)} rows have no eligible "
-                f"{plan.image} donor in this subset; falling back to the "
-                "row's own image and flagging donor_missing=true in "
-                "predictions.jsonl."
-            )
+            question = transform_user_text(_user_text(row), args.ablation)
+            gt_text = _assistant_text(row)
+            gt_waypoints = parse_planning_text(gt_text)
 
-    predictions: list[dict[str, Any]] = []
-    parse_ok = 0
-    parse_full6 = 0
-    ade_values: list[float] = []
-    fde_values: list[float] = []
-    lon_values: list[float] = []
-    lat_values: list[float] = []
-    latencies: list[float] = []
-
-    for idx, row in enumerate(tqdm(rows, desc="VLA eval")):
-        question = transform_user_text(_user_text(row), args.ablation)
-        gt_text = _assistant_text(row)
-        gt_waypoints = parse_planning_text(gt_text)
-
-        image_paths = [str(p) for p in row.get("images", [])]
-        donor_image: str | None = None
-        donor_missing = False
-        if plan.image == "time_shifted":
-            j = donor.time_shifted[idx]
-            if j < 0:
-                load_paths = image_paths
-                donor_missing = True
+            image_paths = [str(p) for p in row.get("images", [])]
+            donor_image = None
+            donor_missing = False
+            if plan.image == "time_shifted":
+                j = donor.time_shifted[idx]
+                if j < 0:
+                    load_paths = image_paths
+                    donor_missing = True
+                else:
+                    load_paths = [str(p) for p in rows[j].get("images", [])]
+                    donor_image = load_paths[0] if load_paths else None
+            elif plan.image == "true_mismatch":
+                j = donor.true_mismatch[idx]
+                if j < 0:
+                    load_paths = image_paths
+                    donor_missing = True
+                else:
+                    load_paths = [str(p) for p in rows[j].get("images", [])]
+                    donor_image = load_paths[0] if load_paths else None
             else:
-                load_paths = [str(p) for p in rows[j].get("images", [])]
-                donor_image = load_paths[0] if load_paths else None
-        elif plan.image == "true_mismatch":
-            j = donor.true_mismatch[idx]
-            if j < 0:
                 load_paths = image_paths
-                donor_missing = True
+
+            images = _load_images(load_paths)
+            if plan.image == "black":
+                images = _blacken(images)
+            prompt_text = _build_prompt(processor, question, images)
+            inputs = processor(text=[prompt_text], images=images, return_tensors="pt")
+            input_len = int(inputs["input_ids"].shape[1])
+            inputs = _to_device(inputs, device)
+
+            start = time.perf_counter()
+            with torch.inference_mode():
+                generated = model.generate(
+                    **inputs,
+                    max_new_tokens=args.max_new_tokens,
+                    do_sample=False,
+                )
+            latency = time.perf_counter() - start
+
+            new_tokens = generated[:, input_len:]
+            prediction = processor.batch_decode(
+                new_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )[0].strip()
+
+            pred_waypoints = parse_planning_text(prediction)
+            per_sample: dict[str, Any] = {
+                "id": row_key,
+                "image": image_paths[0] if image_paths else None,
+                "prediction": prediction,
+                "pred_waypoints": pred_waypoints,
+                "gt_waypoints": gt_waypoints,
+                "latency_s": latency,
+            }
+            if donor_image is not None:
+                per_sample["donor_image"] = donor_image
+            if donor_missing:
+                per_sample["donor_missing"] = True
+
+            if pred_waypoints and gt_waypoints:
+                sample_ade = ade(pred_waypoints, gt_waypoints)
+                sample_fde = fde(pred_waypoints, gt_waypoints)
+                sample_lon, sample_lat = split_lateral_longitudinal_ade(
+                    pred_waypoints, gt_waypoints
+                )
+                per_sample.update({
+                    "ade": sample_ade,
+                    "fde": sample_fde,
+                    "lon_ade": sample_lon,
+                    "lat_ade": sample_lat,
+                })
             else:
-                load_paths = [str(p) for p in rows[j].get("images", [])]
-                donor_image = load_paths[0] if load_paths else None
-        else:
-            load_paths = image_paths
-        images = _load_images(load_paths)
-        if plan.image == "black":
-            images = _blacken(images)
-        prompt_text = _build_prompt(processor, question, images)
-        inputs = processor(text=[prompt_text], images=images, return_tensors="pt")
-        input_len = int(inputs["input_ids"].shape[1])
-        inputs = _to_device(inputs, device)
+                per_sample.update({
+                    "ade": None, "fde": None, "lon_ade": None, "lat_ade": None,
+                })
 
-        start = time.perf_counter()
-        with torch.inference_mode():
-            generated = model.generate(
-                **inputs,
-                max_new_tokens=args.max_new_tokens,
-                do_sample=False,
-            )
-        latency = time.perf_counter() - start
+            out_handle.write(json.dumps(per_sample, ensure_ascii=False) + "\n")
+            out_handle.flush()
+            done_keys.add(row_key)
 
-        new_tokens = generated[:, input_len:]
-        prediction = processor.batch_decode(
-            new_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0].strip()
-
-        pred_waypoints = parse_planning_text(prediction)
-        per_sample: dict[str, Any] = {
-            "id": row.get("id", row.get("sample_id")),
-            "image": image_paths[0] if image_paths else None,
-            "prediction": prediction,
-            "pred_waypoints": pred_waypoints,
-            "gt_waypoints": gt_waypoints,
-            "latency_s": latency,
-        }
-        if donor_image is not None:
-            per_sample["donor_image"] = donor_image
-        if donor_missing:
-            per_sample["donor_missing"] = True
-
-        if pred_waypoints and gt_waypoints:
-            parse_ok += 1
-            if len(pred_waypoints) >= 6:
-                parse_full6 += 1
-            sample_ade = ade(pred_waypoints, gt_waypoints)
-            sample_fde = fde(pred_waypoints, gt_waypoints)
-            sample_lon, sample_lat = split_lateral_longitudinal_ade(pred_waypoints, gt_waypoints)
-            ade_values.append(sample_ade)
-            fde_values.append(sample_fde)
-            lon_values.append(sample_lon)
-            lat_values.append(sample_lat)
-            per_sample.update({
-                "ade": sample_ade,
-                "fde": sample_fde,
-                "lon_ade": sample_lon,
-                "lat_ade": sample_lat,
-            })
-        else:
-            per_sample.update({"ade": None, "fde": None, "lon_ade": None, "lat_ade": None})
-
-        latencies.append(latency)
-        predictions.append(per_sample)
-
-    write_jsonl(args.out_dir / "predictions.jsonl", predictions)
-
-    n = len(predictions)
-    metrics = {
-        "val_file": str(args.val_file),
-        "model": args.model,
-        "adapter": args.adapter,
-        "ablation": args.ablation,
-        "sample_mode": args.sample_mode,
-        "seed": args.seed,
-        "count": n,
-        "available_rows": available_rows,
-        "parse_rate": parse_ok / max(1, n),
-        "parse_full6_rate": parse_full6 / max(1, n),
-        "ade_mean": (sum(ade_values) / len(ade_values)) if ade_values else None,
-        "fde_mean": (sum(fde_values) / len(fde_values)) if fde_values else None,
-        "lon_ade_mean": (sum(lon_values) / len(lon_values)) if lon_values else None,
-        "lat_ade_mean": (sum(lat_values) / len(lat_values)) if lat_values else None,
-        "latency_mean_s": (sum(latencies) / len(latencies)) if latencies else None,
-        "max_new_tokens": args.max_new_tokens,
-    }
-    (args.out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-    print(json.dumps(metrics, indent=2))
-    print(f"\nWrote predictions to {args.out_dir / 'predictions.jsonl'}")
-    print(f"Wrote metrics to {args.out_dir / 'metrics.json'}")
+    _write_metrics(pred_path, args, available_rows)
 
 
 if __name__ == "__main__":
