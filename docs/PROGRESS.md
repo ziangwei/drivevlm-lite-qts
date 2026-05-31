@@ -6,7 +6,7 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 
 ---
 
-## Status snapshot (2026-05-20)
+## Status snapshot (2026-05-31)
 
 | stage | status | next action |
 | --- | --- | --- |
@@ -14,10 +14,18 @@ Format: each stage has a status badge, key outputs, current numbers, and remaini
 | 1. Reference resource fetch | completed | files at `data/external/impromptu_vla/`, schema in JOURNEY §A |
 | 2. Data pipeline rebuild | completed | run adapter on server to generate `data/processed_vla_impromptu/{train,val}.jsonl` |
 | 3. Training adaptation | completed | full 28K LoRA done, eval_loss 0.24 |
-| 4. Baseline evaluation | completed | 500-sample headline: ADE 0.61 m / FDE 1.39 m / parse 1.00 |
-| 5. Methodology layer | completed | 5 ablation rows + maneuver + distribution + prior baselines |
+| 4. Baseline evaluation | completed | 5119-of-val headline: ADE 0.496 m / FDE 1.153 m / parse 1.00 |
+| 5. Methodology layer | completed | 6 ablation rows + maneuver + distribution + prior baselines |
 | 6. Differentiator | completed | driving-semantic metrics: off-road cross-tab + open-loop collision rate |
 | 7. Report + demo | in progress | report drafted locally (gitignored); BEV visualization notebook deferred |
+
+**Headline finding (v1 closeout 2026-05-31): functional asymmetry of the vision
+pathway.** Splitting the old contaminated `mismatch_image` row into a clean
+`time_shifted_image` (same-scene +0.5 s donor) and `true_mismatch_image`
+(cross-scene donor) reveals the vision pathway does **two** different jobs with
+different sensitivities — vision *content* drives lateral / lane-keeping, vision
+*presence* drives collision avoidance, and longitudinal control is an
+ego-status shortcut. See Stage 5 / Stage 6 below and JOURNEY Appendices B / E / G.
 
 Candidate v2/v3 research directions (out of v1 scope, tracked for after the
 report) are in `docs/FUTURE_DIRECTIONS.md`.
@@ -179,7 +187,15 @@ NUM_GPUS=2 RUN_NAME=full_vla bash scripts/train/run_train_vla.sh
 
 **Status**: completed (2026-05-20)
 
-**Headline (500 of 6 019 val samples)**: ADE **0.61 m** / FDE **1.39 m** / parse_rate **1.00** / lon-ADE 0.55 / lat-ADE 0.16 / ~7.85 s per sample. (A 100-sample preview read 0.46 m; the 500-sample number is the trustable one.) This matches the Impromptu "1 cam + full ego status" cell at ~1.8x their 0.34 m on a different base model with no 80 K pretraining.
+**Headline (5 119 of 6 019 val samples, full ablation re-run 2026-05-31)**: ADE **0.496 m** / FDE **1.153 m** / parse_rate **1.00** / lon-ADE 0.444 / lat-ADE 0.127 / ~7.9 s per sample. This matches the Impromptu "1 cam + full ego status" cell at ~1.5× their 0.34 m on a different base model with no 80 K pretraining.
+
+**Subset caveat**: the re-run finished at 5 119 of 6 019 rows (a resume
+`done_keys` quirk; not root-caused, closed deliberately). With `limit=0` the
+selector returns val.jsonl in original log+time-sorted order, so the 5 119 are
+the first-5 119 rows — biased toward early logs. Absolute values carry that
+caveat; the **within-subset ablation contrasts** (the actual story) are
+unaffected. The earlier 500-sample number (ADE 0.61 m) was a non-random
+first-500 slice of the same kind and is **superseded** by this run.
 
 **Deliverables**:
 - `src/drivevlm_lite/eval/impromptu_trajectory.py` — parser + ADE/FDE/lat/long helpers.
@@ -204,7 +220,7 @@ LIMIT=0 RUN_NAME=eval_full OUT_DIR=reports/eval_vla_impromptu_v1_full \
 
 Output per run: `<out-dir>/predictions.jsonl` and `<out-dir>/metrics.json`.
 
-**Target on 500 samples**: parse_rate 1.0, ADE in [0.4, 0.7] m at this matched cell. On full val numbers will not move much from the 500-sample mid run.
+**Target**: parse_rate 1.0, ADE in [0.4, 0.7] m at this matched cell (achieved 0.496 on the 5 119-row re-run; the earlier first-500 slice read higher at 0.61 because of which logs it covered).
 
 **Done when**: ADE on the matched cell is in target range and parse_rate ≥ 0.99.
 
@@ -216,7 +232,7 @@ Output per run: `<out-dir>/predictions.jsonl` and `<out-dir>/metrics.json`.
 
 The whole point of Stage 5 is the **ego-status shortcut** question: open-loop
 nuScenes ADE is known to be largely solvable from ego state alone (an ego-only
-MLP reaches ~0.35 m with no vision). How much of our 0.61 m is the front-camera
+MLP reaches ~0.35 m with no vision). How much of our 0.496 m is the front-camera
 image versus inertial extrapolation of the past ego state? All rows below re-run
 the **same Stage 4 checkpoint** — no retraining — and only corrupt the input at
 inference time, so they are cheap.
@@ -226,7 +242,7 @@ inference time, so they are cheap.
   helpers (maneuver classification, percentiles); covered by
   `tests/test_ablations.py` (7 tests).
 - `scripts/eval/eval_vla.py` — gained an `--ablation` flag.
-- `scripts/eval/run_ablation_matrix.sh` — runs all five at-inference rows.
+- `scripts/eval/run_ablation_matrix.sh` — runs all six at-inference rows.
 - `scripts/eval/analyze_ablations.py` + `run_analyze_ablations.sh` — CPU-only
   post-processing into `ablation_matrix.csv`, `maneuver_breakdown.csv`, and
   `ablation_summary.md`.
@@ -237,14 +253,18 @@ inference time, so they are cheap.
 | --- | --- | --- | --- |
 | `full` | real frame | full | the Stage 4 baseline |
 | `no_kinematics` | real frame | positions only (no v/a/steering) | value of the kinematic fields |
-| `no_ego` | real frame | none | vision-only — the genuine differentiator |
+| `no_ego` | real frame | none | vision-only — but format-OOD, parse collapses |
 | `black_image` | all-zero | full | ego-only upper bound (Gemini "Zero Image") |
-| `mismatch_image` | other scene | full | does the model read *this* frame? |
+| `time_shifted_image` | same-scene +0.5 s donor | full | robustness to a small time shift |
+| `true_mismatch_image` | cross-scene donor | full | does the model read *this specific* scene? |
 
-The `black_image` and `mismatch_image` rows directly answer the "did fusion
-actually happen" question raised in `docs/FUTURE_DIRECTIONS.md` §1: if `full` ≈
-`black_image`, the model is ignoring vision; if `full` ≪ `mismatch_image`, it is
-genuinely conditioning on the current frame.
+The old single `mismatch_image` row was split in two: an audit found 80.8 % of
+its donors were the same-scene +0.5 s next keyframe (essentially time-shifted),
+so the original "mismatch ≈ full" reading was contaminated. `time_shifted_image`
+isolates that benign case; `true_mismatch_image` forces a genuinely different
+scene (different log, or same log with a > 5 s timestamp jump). Together with
+`black_image` they answer the "did fusion happen, and for what?" question from
+`docs/FUTURE_DIRECTIONS.md` §1.
 
 **Post-processing rows** (computed from `full` predictions, no GPU):
 - per-maneuver ADE: straight / left / right / stop (classified from GT trajectory).
@@ -254,12 +274,12 @@ genuinely conditioning on the current frame.
 **Server-side commands**:
 
 ```bash
-# Run the five at-inference rows on the 500-sample subset (~1 h on 1 H100):
-LIMIT=500 OUT_ROOT=reports/ablation_matrix_v1_500 \
+# Run the six at-inference rows over full val (LIMIT=0; ~13 h/row on 1 H100):
+LIMIT=0 OUT_ROOT=reports/ablation_matrix_v1_full \
   bash scripts/eval/run_ablation_matrix.sh
 
 # Assemble the matrix + maneuver + distribution tables (CPU, seconds):
-OUT_ROOT=reports/ablation_matrix_v1_500 \
+OUT_ROOT=reports/ablation_matrix_v1_full \
   bash scripts/eval/run_analyze_ablations.sh
 ```
 
@@ -267,26 +287,29 @@ OUT_ROOT=reports/ablation_matrix_v1_500 \
 inconclusive): a no-ego-status LoRA retrain, and front-3 / 6-camera retrains.
 These need one LoRA fit each (~6 h) and are out of scope for the v1 wrap.
 
-**Output**: `reports/ablation_matrix_v1_500/{ablation_matrix.csv,
+**Output**: `reports/ablation_matrix_v1_full/{ablation_matrix.csv,
 maneuver_breakdown.csv, ablation_summary.md}`; numbers copied into
 `docs/JOURNEY.md` Appendix B.
 
-**Results (500-sample subset, 2026-05-20)** — full ADE 0.61 / no_kinematics 1.47
-/ no_ego 7.21 (parse 0.10, contaminated) / black_image 0.96 / mismatch_image
-0.63. Headline reading: the ego-status shortcut dominates (ego-only ≈ 0.96 m),
-and the model uses "an image" but not "the scene" (a wrong frame barely hurts,
-+0.02 m; a black frame does, +0.35 m). Full numbers + interpretation in
-`docs/JOURNEY.md` Appendix B.
+**Results (5 119 of full val, 2026-05-31)** — full ADE 0.496 / time_shifted 0.498
+/ true_mismatch 0.589 / no_kinematics 1.253 / black_image 0.801 / no_ego 7.31
+(parse 0.16, contaminated). Headline reading: longitudinal control is an
+ego-status shortcut (lon-ADE barely moves under any image corruption), but the
+clean mismatch split exposes a **functional asymmetry** — a wrong-scene image
+(`true_mismatch`) raises ADE +0.093 m and *doubles* lat-ADE (0.127 → 0.231),
+whereas a time-shifted same-scene image (`time_shifted`) is statistically
+identical to `full` (Δ = +0.002 m). Vision *content* feeds the lateral channel.
+Full numbers + interpretation in `docs/JOURNEY.md` Appendix B.
 
-**Maneuver / distribution (analyze step, 2026-05-20, done)** — full distribution
-is right-skewed (p50 0.48, p95 1.58). Per-maneuver ADE: straight 0.65 (n=412),
-left 0.86 (n=30), right 0.90 (n=6), stop 0.11 (n=52). The mean is pulled down by
-trivial stop scenes; the model is weakest on turns — where scene understanding
-should matter most. Full tables in `docs/JOURNEY.md` Appendix B.
+**Maneuver / distribution (analyze step, 2026-05-31, done)** — the `full`
+distribution is right-skewed (mean pulled down by trivial stop scenes); the model
+is weakest on turns, where reading the scene should matter most — consistent with
+the lateral channel being the one that actually uses vision content. Full tables
+in `docs/JOURNEY.md` Appendix B.
 
 **Done when**: ≥ 7 rows reported and the ego-status shortcut is quantified
 (i.e. the `no_ego` and `black_image` gaps are measured against `full`).
-**DONE** — five at-inference rows + maneuver + distribution + lat/long all in.
+**DONE** — six at-inference rows + maneuver + distribution + lat/long all in.
 
 ### Stage 5 — Prior baselines (closing a spec commitment, 2026-05-27)
 
@@ -294,15 +317,17 @@ The locked spec called for three-tier prior baselines (zero / train-mean /
 train-median) and they were never produced. Added as Stage 5 finishing work:
 `scripts/eval/eval_priors.py` computes each prior directly from the train
 JSONL (no model, no GPU) and scores against val GT with the same
-ADE / FDE / lon / lat helpers. Headline expectation: train-mean / -median should
-land near the Ego-MLP literature number (~0.35 m); `full` (0.61 m) and
-`black_image` (0.96 m) read against those.
+ADE / FDE / lon / lat helpers. Result (full 6 019 val): zero ADE 9.23,
+train_mean 5.37, train_median 5.34. `full` (0.496 m) beats train-mean by
+**10.8×** and zero by **18.6×**; even `black_image` (0.801 m) beats train-mean
+by 6.7×. This refutes "the model just emits the training average" — the
+ego-status shortcut is real but not degenerate.
 
 Server-side command (CPU, seconds):
 
 ```bash
-LIMIT_VAL=500 bash scripts/eval/run_priors.sh
-# -> reports/priors_v1_500/prior_metrics.json
+LIMIT_VAL=0 bash scripts/eval/run_priors.sh
+# -> reports/priors_v1_full/prior_metrics.json
 ```
 
 ---
@@ -353,26 +378,25 @@ bash scripts/eval/run_build_pose_index.sh
 # 1. Preflight (devkit + map-expansion + pose index):
 CHECK_ONLY=1 bash scripts/eval/run_offroad.sh
 
-# 2. Full off-road pass on the Stage 5 'full' predictions (CPU, low RAM):
-PREDICTIONS=reports/ablation_matrix_v1_500/full/predictions.jsonl \
-  OUT_DIR=reports/offroad_v1_500 bash scripts/eval/run_offroad.sh
+# 2. Full off-road pass on each ablation's predictions (CPU, low RAM):
+PREDICTIONS=reports/ablation_matrix_v1_full/full/predictions.jsonl \
+  OUT_DIR=reports/offroad_v1_full bash scripts/eval/run_offroad.sh
 ```
 
-**Output**: `reports/offroad_v1_500/{offroad_metrics.json,offroad_per_sample.jsonl}`.
+**Output**: `reports/offroad_v1_full/{offroad_metrics.json,offroad_per_sample.jsonl}`.
 
-**Results (500-sample subset, 2026-05-21, cross-tab over all 5 Stage 5 rows)** —
-trajectory off-road: full 0.40 % / no_kinematics 3.20 % / no_ego 9.80 %\* /
-**black_image 12.00 %** / mismatch_image 0.40 %; GT 0 % everywhere (sanity ✓).
-**Key reading**: off-road rate is discriminative in a direction ADE is not.
-ADE has `mismatch ≈ full` (vision content irrelevant); off-road *also* has
-`mismatch ≈ full`, but `black_image` jumps 30× to 12 %. So the image is doing
-**road-following**, not scene-specific trajectory shaping — replacing the image
-with noise breaks road-following even with full ego state, replacing it with
-another real scene does not. Full cross-tab + interpretation in
-`docs/JOURNEY.md` Appendix E.
+**Results (5 119 of full val, 2026-05-31, cross-tab over all 6 Stage 5 rows)** —
+trajectory off-road: full 0.21 % / time_shifted 0.29 % / **true_mismatch 1.56 %** /
+no_kinematics 1.62 % / **black_image 7.60 %** / no_ego 4.74 %\*; GT 0 % everywhere
+(sanity ✓). **Key reading**: off-road is discriminative in a direction ADE
+alone is not, and the clean mismatch split is what makes it sharp. A wrong-scene
+image raises off-road **7×** (0.21 → 1.56 %) while ADE moves only +0.093 m — the
+lateral / road-following channel genuinely reads *this specific* scene's geometry.
+Blacking the image entirely raises it **36×** (→ 7.60 %). Full cross-tab +
+interpretation in `docs/JOURNEY.md` Appendix E.
 
-**Done when**: a pred vs GT off-road rate is reported on the 500-sample subset
-(GT near 0 %) and added to the results table with a clear claim. **DONE.**
+**Done when**: a pred vs GT off-road rate is reported (GT near 0 %) and added to
+the results table with a clear claim. **DONE.**
 
 ### Stage 6 — Open-loop collision rate (driving-semantic metric, 2026-05-27)
 
@@ -393,19 +417,30 @@ Server-side commands:
 # 0. One-time build of the collision index (~3-5 min, peak ~500 MB RAM):
 bash scripts/eval/run_build_collision_index.sh
 
-# 1. Collision rate on the Stage 5 'full' predictions (and any other variant):
-PREDICTIONS=reports/ablation_matrix_v1_500/full/predictions.jsonl \
-  OUT_DIR=reports/collision_v1_500/full \
+# 1. Collision rate on each ablation's predictions:
+PREDICTIONS=reports/ablation_matrix_v1_full/full/predictions.jsonl \
+  OUT_DIR=reports/collision_v1_full/full \
   bash scripts/eval/run_collision.sh
 ```
 
-Output: `reports/collision_v1_500/<row>/{collision_metrics.json,collision_per_sample.jsonl}`.
+Output: `reports/collision_v1_full/<row>/{collision_metrics.json,collision_per_sample.jsonl}`.
 GT collision rate (sanity floor) should be very close to 0 % — by construction
 the logged ego trajectory does not collide with logged other-agent trajectories
 beyond annotation noise.
 
-**Done when**: pred + GT collision rate reported on the 500-sample subset,
-matched against the off-road table, and added to the results.
+**Results (5 119 of full val, 2026-05-31)** — trajectory collision: full 0.06 %
+(Wilson 95 % CI [0.02, 0.17]) / time_shifted 0.04 % / true_mismatch 0.10 %
+(CI [0.04, 0.23]) / no_kinematics 0.47 % / **black_image 1.02 %** (17× full) /
+no_ego 3.87 %\*; GT 0 % everywhere. **Key reading**: collision is the metric
+that separates the *other* half of the asymmetry — it is ≈ full under
+`true_mismatch` (0.10 % vs 0.06 %, CIs overlap) but jumps **17×** under
+`black_image`. So collision avoidance keys on vision *presence* ("I see *some*
+image"), not vision *content*; mismatch leaves it intact because collision is
+mostly longitudinal and longitudinal is the ego shortcut. Full table in
+`docs/JOURNEY.md` Appendix G.
+
+**Done when**: pred + GT collision rate reported, matched against the off-road
+table, and added to the results. **DONE.**
 
 ---
 
@@ -430,6 +465,7 @@ phase 2 (BEV visualization notebook) still to do.
 
 Append every notable scope or methodology decision here (newest on top).
 
+- **2026-05-31** v1 numbers closed. Re-ran the ablation matrix over full val (finished at 5 119/6 019 in original order; resume quirk not root-caused, closed deliberately). Split the contaminated `mismatch_image` into `time_shifted_image` + `true_mismatch_image`; recomputed off-road + collision + priors on the 6-row matrix. New headline: **functional asymmetry** — vision content → lateral, vision presence → collision, longitudinal = ego shortcut. Superseded all 500-sample absolute numbers (ADE 0.61 → 0.496). Docs (this file, JOURNEY, SPEC, V1_INTERVIEW_SUMMARY) rewritten; closeout tagged `v1.0`.
 - **2026-05-20** Stage 5 starts: ablation tooling landed (`eval/ablations.py`, `--ablation` flag, matrix + analysis launchers). Five at-inference rows (full / no_kinematics / no_ego / black_image / mismatch_image) run on the existing checkpoint — no retrain. Gemini's "Zero Image" / "ego-zeroed" suggestions folded in as the `black_image` and `no_ego` rows. Candidate v2/v3 directions captured in `docs/FUTURE_DIRECTIONS.md`.
 - **2026-05-20** Stage 4 done: 500-sample headline ADE 0.61 m / FDE 1.39 m / parse 1.00 / lon 0.55 / lat 0.16.
 - **2026-05-20** Stage 4 starts: standalone eval script (no Trainer); generation + PLANNING parser + ADE/FDE/lat/long metrics.

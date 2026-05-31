@@ -44,10 +44,10 @@ A focused open replication of a driving Vision-Language-Action (VLA) baseline on
 | nuScenes scene-disjoint val ADE (matched cell: 1 cam + full ego status) | 0.4 – 0.7 m |
 | ADE vision-only cell (1 cam, no ego status) | 1.5 – 3.0 m |
 | FDE (matched cell) | 0.8 – 1.4 m |
-| open-loop collision rate (GT bbox) | < 1 %  *(0.00 % on `full`; cross-tab with Stage 5 ablations in JOURNEY Appendix G)* |
-| off-road rate (HD map drivable area) | < 5 %  *(0.40 % on `full`, see Stage 6)* |
+| open-loop collision rate (GT bbox) | < 1 %  *(0.06 % on `full`, Wilson 95 % CI [0.02, 0.17]; cross-tab in JOURNEY Appendix G)* |
+| off-road rate (HD map drivable area) | < 5 %  *(0.21 % on `full`, see Stage 6)* |
 | trajectory parse rate | 1.0  *(achieved)* |
-| ablation matrix rows | ≥ 11  *(5 ablation + 4 maneuver + 4 percentile + lat/long + 3 priors)* |
+| ablation matrix rows | ≥ 12  *(6 ablation + 4 maneuver + 4 percentile + lat/long + 3 priors)* |
 
 After Stage 1 we know Impromptu uses **single CAM_FRONT + full ego status (velocity, acceleration, steering)**, not 6 cameras and not vision-only. Their 0.34 m L2 is a shortcut-heavy number. Our v1 reports two cells side-by-side: the matched cell (replicates their setup) and the vision-only cell (the genuine differentiator). The methodology gain is the matrix between them.
 
@@ -125,7 +125,9 @@ input at inference time (no retraining); they are implemented in
 `scripts/eval/run_ablation_matrix.sh`:
 - ego-status shortcut ablation, at-inference: `full` / `no_kinematics`
   (positions only) / `no_ego` (vision-only) / `black_image` (vision-masked +
-  full ego status) / `mismatch_image`.
+  full ego status) / `time_shifted_image` (same-scene +0.5 s donor) /
+  `true_mismatch_image` (cross-scene donor). The old single `mismatch_image`
+  row was split in two after it was found to be 80 % same-scene contaminated.
 - lateral / longitudinal ADE split (already produced per-sample in Stage 4).
 - per-maneuver breakdown (straight / left / right / stop), classified from GT.
 - p25 / p50 / p75 / p95 ADE distribution.
@@ -152,8 +154,8 @@ Not chosen (kept for reference): B. synthetic CoT supervision — already a
 C. trajectory regression head — violates the v1 "no architecture change"
 constraint, deferred to v3.
 
-**Done when**: a pred vs GT off-road rate is reported on the 500-sample subset
-(GT near 0 %) and appended to the Stage 5 table with a clear claim.
+**Done when**: a pred vs GT off-road rate is reported (GT near 0 %) and appended
+to the Stage 5 table with a clear claim.
 
 ### Stage 7 — Report + demo
 

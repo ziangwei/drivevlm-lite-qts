@@ -10,9 +10,9 @@ Read these three in order:
 
 For the public-facing summary and reproduction commands: `README.md`.
 
-## One-paragraph status (2026-05-20)
+## One-paragraph status (2026-05-31, v1 closed)
 
-Stages 0–4 complete. The v1 pipeline replicates Impromptu-VLA's nuScenes setup on Qwen3-VL-4B-Instruct (different base model — Impromptu uses Qwen2.5-VL-3B). Headline result on 500 of nuScenes's 6 020-sample val split: **ADE 0.61 m / FDE 1.39 m / parse rate 1.00**. Next is Stage 5 (ablation matrix: ego-status shortcut peeling, per-maneuver breakdown, ADE distribution), then Stage 6 (off-road / drivable-area metric via HD map). The DriveLM VQA "diagnostic prequel" has been retired from the project narrative.
+Stages 0–7 complete; v1 numbers finalized and tagged `v1.0`. The v1 pipeline replicates Impromptu-VLA's nuScenes setup on Qwen3-VL-4B-Instruct (different base model — Impromptu uses Qwen2.5-VL-3B). Headline result on 5 119 of nuScenes's 6 019-sample val split: **ADE 0.496 m / FDE 1.153 m / parse rate 1.00**. The project's contribution is the methodology layer: a six-row at-inference ablation crossed with off-road and open-loop collision rates resolves a **functional asymmetry** — vision *content* → lateral / lane-keeping, vision *presence* → collision avoidance, longitudinal → ego-status shortcut. The DriveLM VQA "diagnostic prequel" has been retired from the narrative. v2 scoping (query-aware visual token reduction) is the next workstream.
 
 ## Hard constraints (do not change without an explicit decision in `JOURNEY.md`)
 

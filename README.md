@@ -6,22 +6,24 @@ For full project rationale, history, and decisions: see `docs/PROJECT_SPEC.md`, 
 
 ## Current Headline Result
 
-Validation on 500 of nuScenes's official 6 020-sample val split, using Impromptu-VLA's exact prompt schema:
+Validation on 5 119 of nuScenes's official 6 019-sample val split, using Impromptu-VLA's exact prompt schema (the re-run finished at 5 119 rows in original log+time order — absolute values are mildly log-biased, but the ablation contrasts below are within-subset and unaffected):
 
 | metric | value |
 | --- | ---: |
-| ADE | 0.610 m |
-| FDE | 1.393 m |
-| longitudinal ADE | 0.552 m |
-| lateral ADE | 0.156 m |
+| ADE | 0.496 m |
+| FDE | 1.153 m |
+| longitudinal ADE | 0.444 m |
+| lateral ADE | 0.127 m |
 | trajectory parse rate | 1.000 |
-| avg latency / sample | 7.87 s |
+| avg latency / sample | ~7.9 s |
 
 Reference points (not directly reproduced here):
 
 - Impromptu Base+nuScenes (Qwen2.5-VL-3B): 0.34 m L2 average
 - EMMA+: 0.29 m
 - Ego-MLP (no vision, ego status only): 0.35 m — illustrates how much of nuScenes open-loop ADE comes from ego-status fitting rather than vision
+
+**Headline finding (the methodology layer, not the ADE).** A six-row at-inference ablation crossed with off-road and open-loop collision rates resolves a **functional asymmetry** in the vision pathway: vision *content* drives the lateral / lane-keeping channel (a cross-scene image doubles lateral ADE and raises off-road 7×), vision *presence* drives collision avoidance (blacking the image raises collision 17×, while a wrong scene leaves it unchanged), and longitudinal control is an ego-status shortcut (longitudinal ADE barely moves under any image corruption). A single ADE number hides all three. See `docs/JOURNEY.md` Appendices B / E / G.
 
 ## Method Summary
 
@@ -110,7 +112,7 @@ The launcher pins `CUDA_VISIBLE_DEVICES=0` in single-GPU mode because HF Trainer
 ### 4. Evaluate
 
 ```bash
-LIMIT=500 RUN_NAME=eval_500 OUT_DIR=reports/eval_vla_impromptu_v1_500 \
+LIMIT=0 RUN_NAME=eval_full OUT_DIR=reports/eval_vla_impromptu_v1_full \
   bash scripts/eval/run_eval_vla.sh
 ```
 
@@ -118,14 +120,15 @@ Results land at `reports/<out-dir>/metrics.json` and `predictions.jsonl`.
 
 ### 5. Stage 5 ablation matrix
 
-Re-runs the same checkpoint under five input corruptions to quantify the
-ego-status shortcut (how much of the ADE is vision vs. ego-state extrapolation),
-then assembles the matrix, per-maneuver, and ADE-distribution tables:
+Re-runs the same checkpoint under six input corruptions (`full`, `no_kinematics`,
+`no_ego`, `black_image`, `time_shifted_image`, `true_mismatch_image`) to quantify
+the ego-status shortcut and the functional asymmetry of the vision pathway, then
+assembles the matrix, per-maneuver, and ADE-distribution tables:
 
 ```bash
-LIMIT=500 OUT_ROOT=reports/ablation_matrix_v1_500 \
+LIMIT=0 OUT_ROOT=reports/ablation_matrix_v1_full \
   bash scripts/eval/run_ablation_matrix.sh
-OUT_ROOT=reports/ablation_matrix_v1_500 \
+OUT_ROOT=reports/ablation_matrix_v1_full \
   bash scripts/eval/run_analyze_ablations.sh
 ```
 

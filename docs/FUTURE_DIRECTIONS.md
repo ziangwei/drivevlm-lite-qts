@@ -17,12 +17,13 @@ cost, lowest first.
 
 **Status: adopted into Stage 5.** The strongest, cheapest idea overlaps directly
 with the ego-status shortcut matrix we were already planning. The question is
-whether the 0.61 m ADE comes from the front camera or from inertial
+whether the 0.496 m ADE comes from the front camera or from inertial
 extrapolation of the textual past ego state.
 
 - Zero / black image + full ego status → `black_image` row (ego-only upper bound).
 - Full image + no ego status → `no_ego` row (vision-only).
-- Mismatched image + full ego status → `mismatch_image` row (does it read this frame?).
+- Same-scene +0.5 s image + full ego status → `time_shifted_image` row (robust to small time shift?).
+- Cross-scene image + full ego status → `true_mismatch_image` row (does it read *this specific* scene?).
 
 Implemented in `src/drivevlm_lite/eval/ablations.py` and run by
 `scripts/eval/run_ablation_matrix.sh`. No retraining; runs on the existing

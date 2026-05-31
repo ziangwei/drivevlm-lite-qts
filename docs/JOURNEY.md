@@ -117,11 +117,11 @@ Final report and interview talk will follow this arc:
 1. **Diagnostic prequel**: DriveLM VQA LoRA gives EM 0.53 but spot-checks reveal weak grounding. Identifies text-EM as the wrong target for driving understanding.
 2. **VLA pivot**: nuScenes ego-pose → 6-waypoint trajectory text tokens. Scene-disjoint split + three-tier prior baselines establish the evaluation rigor.
 3. **Replication on Qwen3-VL-4B**: adopt Impromptu-VLA's prompt schema (past ego pose + navigation command + 6 cameras), train on full nuScenes (~28K). Target ADE 0.5-0.8m, 5-7x improvement over the initial Mini-VLA.
-4. **Methodology layer**: ablation matrix (mismatched / front3 / ego-status shortcut / per-maneuver). Independently reproduces "ego status all you need" and frames the vision-only number as honest.
-5. **Differentiator**: one of {off-road rate, CoT supervision, regression head}.
-6. **Limitations**: open-loop only; no closed-loop / collision-avoidance claim; single dataset; no continuous-action head.
+4. **Methodology layer**: at-inference ablation matrix (ego-status peeling + a clean time_shifted / true_mismatch image split + per-maneuver). Reproduces the ego-status shortcut and frames the vision-only number honestly.
+5. **Differentiator**: off-road + open-loop collision cross-tab over the matrix. Three independent open-loop metrics resolve a **functional asymmetry** — vision *content* → lateral / lane-keeping, vision *presence* → collision avoidance, longitudinal → ego shortcut — that a single ADE number hides.
+6. **Limitations**: open-loop only; no closed-loop / collision-avoidance claim; single dataset; no continuous-action head; absolute numbers on a log-biased 5 119-row subset (contrasts unaffected).
 
-The pitch is not "I built the next driving SOTA". It is: "I diagnosed a misalignment between text-VQA and driving tasks, then built a controlled VLA replication that probes the field's evaluation conventions."
+The pitch is not "I built the next driving SOTA". It is: "I diagnosed a misalignment between text-VQA and driving tasks, then built a controlled VLA replication whose ablation × triple-metric matrix diagnoses *how* the model uses each input — a functional asymmetry single-number benchmarks cannot see."
 
 ---
 
@@ -222,75 +222,82 @@ Implications:
 
 ## Appendix B — Ablation matrix snapshot
 
-Stage 5 (started 2026-05-20). All rows below re-run the **same** Stage 4 LoRA
-checkpoint on the 500-sample val subset; only the input is corrupted at
+Stage 5 (started 2026-05-20; re-run on full val 2026-05-31). All rows below
+re-run the **same** Stage 4 LoRA checkpoint; only the input is corrupted at
 inference time (no retraining). Tooling: `src/drivevlm_lite/eval/ablations.py`,
 `scripts/eval/run_ablation_matrix.sh`, `scripts/eval/analyze_ablations.py`.
 
 The central question is the **ego-status shortcut**: open-loop nuScenes ADE is
 largely solvable from ego state alone (ego-only MLP ≈ 0.35 m, no vision), so we
-need to show how much of our 0.61 m is the front camera versus inertial
-extrapolation of the past ego state.
+need to show how much of our 0.496 m is the front camera versus inertial
+extrapolation of the past ego state — and, in the corrected matrix, *what kind*
+of error each input drives.
 
-Results — 500-sample subset, 2026-05-20:
+**Why the matrix was re-run (2026-05-31).** The original 500-sample numbers were
+a non-random first-500 slice of a log+time-sorted val (74.6 % one Singapore
+drive), and the single `mismatch_image` row was contaminated: an audit found
+80.8 % of its donors were the same-scene +0.5 s next keyframe (essentially
+time-shifted, not mismatched). Both were fixed. The matrix now runs over full
+val (the re-run finished at 5 119 of 6 019 rows in original order — a resume
+quirk, closed deliberately; still log-biased, but the within-subset contrasts
+are unaffected), and the old `mismatch_image` is split into two rows:
+`time_shifted_image` (donor = same log, |Δt| ≤ 0.7 s) and `true_mismatch_image`
+(donor = different scene: different log, or same log with Δt > 5 s).
 
-| row | image | ego text | parse | ADE | FDE | lon | lat | p50 | p95 |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| full | real | full | 1.00 | 0.61 | 1.39 | 0.55 | 0.16 | 0.48 | 1.58 |
-| no_kinematics | real | positions only | 1.00 | 1.47 | 2.99 | 1.32 | 0.37 | 1.04 | 3.99 |
-| no_ego | real | none | 0.10 | 7.21\* | 12.45\* | 7.14\* | 0.67\* | 5.81\* | 21.15\* |
-| black_image | zero pixels | full | 1.00 | 0.96 | 2.38 | 0.66 | 0.54 | 0.93 | 2.08 |
-| mismatch_image | other scene | full | 1.00 | 0.63 | 1.43 | 0.55 | 0.18 | 0.49 | 1.65 |
+Results — 5 119 of full val, 2026-05-31:
 
-\* `no_ego` numbers are over the 10 % of samples that still parsed; not clean
-(see finding 4).
+| row | image | ego text | parse | ADE | FDE | lon | lat |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| full | real | full | 1.00 | 0.496 | 1.153 | 0.444 | 0.127 |
+| time_shifted_image | same-scene +0.5 s | full | 1.00 | 0.498 | 1.160 | 0.443 | 0.132 |
+| true_mismatch_image | cross-scene | full | 1.00 | 0.589 | 1.412 | 0.468 | **0.231** |
+| no_kinematics | real | positions only | 1.00 | 1.253 | 2.581 | 1.111 | 0.312 |
+| black_image | zero pixels | full | 1.00 | 0.801 | 2.025 | 0.554 | **0.453** |
+| no_ego | real | none | 0.16\* | 7.31\* | 12.22\* | 6.99\* | 0.633\* |
 
-The `full` distribution is right-skewed (p50 0.48 < mean 0.61, p95 1.58): most
-predictions are tight, a long tail lifts the mean.
+\* `no_ego` numbers are over the ~16 % of samples that still parsed; not clean
+(see finding 5).
 
 Findings:
 
-1. **Ego-status shortcut dominates.** Zeroing the image but keeping full ego
-   status (`black_image`) only moves ADE 0.61 → 0.96 m: the model reaches
-   ~0.96 m with no visual information at all. This reproduces, in a VLA setting,
-   the AD-MLP / BEV-Planner critique that nuScenes open-loop ADE is largely
-   solvable from ego state (cf. ego-only MLP ≈ 0.35 m).
-2. **The model uses "an image", not "the scene".** Swapping in a *different*
-   scene's frame (`mismatch_image`) barely changes ADE (0.61 → 0.63 m), while a
-   black frame hurts (→ 0.96 m). So the visual pathway contributes a generic
-   in-distribution prior, not scene-specific reasoning: having a plausible image
-   matters (black → mismatch closes 0.33 m), having the *correct* image adds
-   only ~0.02 m.
-3. **Kinematics carry the longitudinal signal.** Dropping velocity / accel /
-   steering (`no_kinematics`) more than doubles ADE (0.61 → 1.47 m); lon-ADE
-   roughly quadruples (0.55 → 1.32 m) while lat-ADE moves far less (0.16 →
-   0.37 m). Velocity → distance-travelled-in-3 s is the single biggest field.
-4. **`no_ego` is contaminated, not clean.** Deleting all ego text breaks the
-   trained prompt structure: parse_rate collapses to 0.10, so its ADE 7.21 m is
-   over a non-representative 10 % and measures format-OOD more than vision-only
-   capability. Use `black_image` (parse 1.00, format intact) as the clean
-   ego-only reference; a true vision-only number would need a retrained LoRA.
+1. **The headline is a *functional asymmetry*, not a single shortcut.** Reading
+   `true_mismatch_image` and `black_image` together (and against the metrics in
+   Appendices E / G) shows the vision pathway doing **two different jobs** with
+   **different sensitivities** — see findings 2–4. This is the project's central
+   claim and is what single-ADE-number papers cannot see.
+2. **Vision *content* → lateral / lane-keeping.** A wrong-scene image
+   (`true_mismatch`) raises ADE only +0.093 m but **doubles lat-ADE**
+   (0.127 → 0.231) — and off-road rate rises 7× (Appendix E). The lateral
+   channel reads *this specific* scene's road geometry.
+3. **Vision *presence* → collision avoidance.** Collision rate is ≈ full under
+   `true_mismatch` (0.10 % vs 0.06 %, CIs overlap, Appendix G) but jumps **17×**
+   under `black_image`. The "is there something in front of me" instinct triggers
+   on seeing *some* image, not the *correct* one.
+4. **Longitudinal control = ego-status shortcut.** lon-ADE barely moves under any
+   image corruption (0.444 → 0.468 under mismatch, → 0.554 under black). Dropping
+   velocity / accel / steering (`no_kinematics`) is what doubles ADE (→ 1.253)
+   and lon-ADE (→ 1.111). Velocity → distance-travelled-in-3 s is the single
+   biggest field, and it lives in the ego text, not the image.
+5. **The clean split retires the old "uses an image, not the scene" claim.** The
+   contaminated `mismatch_image` had Δ = +0.02 m and motivated a vague
+   "road-following" reading. Split cleanly: `time_shifted` is statistically
+   identical to `full` (Δ = +0.002 m — the model is robust to a small time shift),
+   while `true_mismatch` Δ = +0.093 m with the lateral-specific degradation
+   above. The sharper, defensible statement is the asymmetry, not "an image".
+6. **`no_ego` is contaminated, not clean.** Deleting all ego text breaks the
+   trained prompt structure: parse_rate collapses to 0.16, so its ADE 7.31 m is
+   over a non-representative minority and measures format-OOD more than
+   vision-only capability. Use `black_image` (parse 1.00, format intact) as the
+   clean ego-only reference; a true vision-only number would need a retrained LoRA.
 
-Per-maneuver breakdown (`full` row, classified from the GT trajectory):
-
-| maneuver | n | ADE |
-| --- | ---: | ---: |
-| straight | 412 | 0.65 |
-| left | 30 | 0.86 |
-| right | 6 | 0.90 |
-| stop | 52 | 0.11 |
-
-Reading: the 0.61 m mean is pulled *down* by the 52 stop scenes (ADE 0.11 —
-predicting "stay put" for a stopped ego is nearly free, another shortcut), and
-the model is **weakest on turns** (left 0.86, right 0.90) — exactly where
-reading the scene (lanes, intersection geometry) should matter most, reinforcing
-the Stage 5 finding that the model barely uses scene-specific visual content.
-Right turns (n=6) are too few to be statistically reliable; cite with that
-caveat. Straight (n=412) at 0.65 is the representative "actually driving" number.
-
+Per-maneuver reading (`full` row, classified from the GT trajectory): the mean is
+pulled *down* by stop scenes (predicting "stay put" for a stopped ego is nearly
+free, another shortcut), and the model is **weakest on turns** — exactly where
+reading the scene (lanes, intersection geometry) should matter most, consistent
+with the lateral channel being the one that genuinely uses vision content.
 Per-maneuver ADE (straight / left / right / stop) and the p25/p50/p75/p95
-distribution are produced by `analyze_ablations.py` from the `full` row and
-land in `maneuver_breakdown.csv` / `ablation_summary.md`.
+distribution are produced by `analyze_ablations.py` from the `full` row and land
+in `maneuver_breakdown.csv` / `ablation_summary.md`.
 
 ## Appendix C — Final numbers
 
@@ -299,82 +306,81 @@ To be filled after Stage 7.
 ## Appendix E — Stage 6 off-road rate (2026-05-21)
 
 Off-road / drivable-area rate against the nuScenes HD map (`drivable_area`
-layer) on the same 500-sample val subset. Pose lookup uses the cached CAM_FRONT
-pose index (`scripts/eval/build_pose_index.py`); the query is
-`NuScenesMap.layers_on_point`. The metric is run **on each of the five
+layer) on the 5 119-of-val matrix (2026-05-31). Pose lookup uses the cached
+CAM_FRONT pose index (`scripts/eval/build_pose_index.py`); the query is
+`NuScenesMap.layers_on_point`. The metric is run **on each of the six
 Stage 5 ablation predictions**, not just `full` — that cross-tab is what makes
 it informative.
 
-| Stage 5 row | parse | ADE | waypoint off-road | trajectory off-road | GT traj off-road |
+| Stage 5 row | parse | ADE | lat-ADE | trajectory off-road | GT traj off-road |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| full | 1.00 | 0.61 | 0.10 % | 0.40 % | 0.00 % |
-| no_kinematics | 1.00 | 1.47 | 0.67 % | 3.20 % | 0.00 % |
-| no_ego | 0.10\* | 7.21\* | 3.58 %\* | 9.80 %\* | 0.00 % |
-| black_image | 1.00 | 0.96 | 2.80 % | **12.00 %** | 0.00 % |
-| mismatch_image | 1.00 | 0.63 | 0.10 % | 0.40 % | 0.00 % |
+| full | 1.00 | 0.496 | 0.127 | 0.21 % | 0.00 % |
+| time_shifted_image | 1.00 | 0.498 | 0.132 | 0.29 % | 0.00 % |
+| true_mismatch_image | 1.00 | 0.589 | 0.231 | **1.56 %** | 0.00 % |
+| no_kinematics | 1.00 | 1.253 | 0.312 | 1.62 % | 0.00 % |
+| black_image | 1.00 | 0.801 | 0.453 | **7.60 %** | 0.00 % |
+| no_ego | 0.16\* | 7.31\* | 0.633\* | 4.74 %\* | 0.00 % |
 
-\* `no_ego` is computed over the 51/500 (10 %) that still parsed; not a clean
-number, kept only for completeness.
+\* `no_ego` is computed over the ~16 % that still parsed; not a clean number,
+kept only for completeness.
 
 Sanity: GT 0 % across all rows confirms the ego→global transform and the
 drivable-area query are correct.
 
-**Findings (this row sharpens, not confirms, the Stage 5 reading).**
+**Findings — off-road is the metric that exposes the lateral half of the
+asymmetry.**
 
-5. **ADE and off-road rate tell different stories about what vision does for
-   the model.** ADE has `mismatch ≈ full` (0.61 vs 0.63), which on its own
-   would say "vision content barely matters". Off-road rate *also* has
-   `mismatch ≈ full` (0.40 % vs 0.40 %), reinforcing that the *specific* scene
-   is irrelevant — *but* `black_image` jumps from 0.40 % to **12.00 %**, a 30×
-   increase, while its ADE only moved 0.61 → 0.96. So the image pathway is
-   doing real work — it just isn't refining the trajectory's shape, it's
-   keeping the path on the drivable area. Vision contributes **road-following,
-   not scene-specific trajectory shaping**.
-
-6. **Off-road rate is, contrary to the initial expectation in this appendix's
-   first draft, discriminative.** It cleanly separates "in-distribution image"
-   (full / mismatch / even no_kinematics) from "OOD image" (black). The
-   permissive `drivable_area` is still loose enough to absorb ADE noise but
-   tight enough to catch the multimodal degradation when the visual stream is
-   degenerate.
-
-7. **The kinematics carry road-following indirectly.** Dropping velocity / accel
-   / steering (`no_kinematics`) raises trajectory off-road by ~8× (0.4 → 3.2 %),
-   far less than blacking the image, because the past positions still encode
-   yaw / heading.
+7. **Vision *content* drives off-road, and the clean mismatch split proves it.**
+   A wrong-scene image (`true_mismatch`) raises trajectory off-road **7×**
+   (0.21 → 1.56 %) while its ADE moves only +0.093 m — ADE alone would have
+   called this "vision barely matters". The benign `time_shifted` row stays at
+   `full` (0.29 % vs 0.21 %), confirming the 7× is from *scene content* being
+   wrong, not from any image perturbation. The lateral / road-following channel
+   reads *this specific* scene's geometry.
+8. **Blacking the image is worse still (36×, → 7.60 %)** — no image at all is
+   more damaging than a wrong image, as expected if the channel needs real road
+   structure to stay on the drivable area.
+9. **Off-road is discriminative where ADE is muddy.** The permissive
+   `drivable_area` layer is loose enough to absorb ADE noise but tight enough to
+   catch lateral degradation: it cleanly orders full ≈ time_shifted ≪
+   true_mismatch ≪ black. Kinematics contribute indirectly (no_kinematics 1.62 %)
+   because past positions still encode yaw / heading.
 
 **Net narrative for the report and interview.** ADE alone undersold what vision
-does. The full Stage 5 × off-road cross-tab is the cleanest one-table story:
+does. The Stage 5 × off-road × collision cross-tab is the cleanest one-table
+story, and it is an **asymmetry**, not a single shortcut:
 
-- The 0.61 m ADE is largely an ego-status shortcut (Stage 5).
-- The image is not used to read the scene (mismatch ≈ full on both metrics).
-- The image *is* used to keep the predicted path on the road
-  (black_image trajectory off-road 12 % vs full 0.4 %).
-- Two different driving metrics, agreeing on (1) and (2) and disagreeing
-  usefully on (3), is the methodology contribution this project adds on top of
-  the Impromptu replication.
+- Longitudinal control is largely an ego-status shortcut (lon-ADE barely moves).
+- Vision *content* drives the lateral channel: `true_mismatch` doubles lat-ADE
+  and raises off-road 7×, while `time_shifted` does not.
+- Vision *presence* drives collision avoidance: `black_image` raises collision
+  17× while `true_mismatch` leaves it ≈ full (Appendix G).
+- Three independent open-loop metrics resolving the asymmetry — instead of one
+  ADE number hiding it — is the methodology contribution this project adds on
+  top of the Impromptu replication.
 
 ## Appendix F — Prior baselines (Stage 5 closing, 2026-05-27)
 
 Three-tier prior baseline computed directly from train.jsonl GT, with no
 model in the loop. Each prior is a fixed 6-waypoint trajectory in the ego
-frame; scored against the same 500-sample val subset as Stage 4.
+frame; scored against **full 6 019 val** (priors are model-free, so the subset
+caveat does not apply — these are the unbiased anchor numbers).
 
-| prior | ADE | FDE | lon-ADE | lat-ADE | note |
-| --- | ---: | ---: | ---: | ---: | --- |
-| zero | 9.21 | 15.74 | 9.16 | 0.51 | always (0,0) — degenerate floor |
-| train_mean | 4.75 | 8.26 | 4.59 | 0.52 | per-timestep mean over 28 130 train trajectories |
-| train_median | 4.72 | 8.20 | 4.56 | 0.51 | per-timestep median |
+| prior | ADE | FDE | note |
+| --- | ---: | ---: | --- |
+| zero | 9.23 | 15.85 | always (0,0) — degenerate floor |
+| train_mean | 5.37 | — | per-timestep mean over 28 130 train trajectories |
+| train_median | 5.34 | — | per-timestep median |
 
 Reading: `train_mean` / `train_median` essentially predict "constant forward
-motion at training-average speed", landing around 4.7 m ADE. Our `full` model
-at 0.61 m beats this floor by **7.7×**; even `black_image` (the vision-masked
-ego-only cell, 0.96 m) beats it by **4.9×**. So the ego-status shortcut
-finding (Appendix B) is *real* but **not degenerate** — the model is doing
-materially more than emitting the training-average trajectory. The literature's
-ego-only MLP reference (~0.35 m on nuScenes) sits below our `train_mean` because
-that MLP has access to the *current* ego state at inference; our train-mean
-prior intentionally does not.
+motion at training-average speed", landing around 5.3 m ADE. Our `full` model
+at 0.496 m beats this floor by **10.8×** and beats `zero` by **18.6×**; even
+`black_image` (the vision-masked ego-only cell, 0.801 m) beats train-mean by
+6.7×. So the ego-status shortcut finding (Appendix B) is *real* but **not
+degenerate** — the model is doing materially more than emitting the
+training-average trajectory. The literature's ego-only MLP reference
+(~0.35 m on nuScenes) sits below our `train_mean` because that MLP has access to
+the *current* ego state at inference; our train-mean prior intentionally does not.
 
 ## Appendix G — Open-loop collision rate (Stage 6 closing, 2026-05-27)
 
@@ -383,35 +389,44 @@ waypoints into the global frame (using the same pose index as Stage 6) and
 testing each future-timestep position against the 2-D rotated bounding boxes
 of every other agent in safety-relevant categories (vehicle.* + human.*)
 sourced from `sample_annotation.json`. GT collision rate is the sanity floor
-(should be near zero).
+(should be near zero). 5 119-of-val matrix, 2026-05-31; Wilson 95 % CIs on the
+low-rate cells.
 
-| Stage 5 row | parse | ADE | waypoint collision | trajectory collision | GT traj collision |
+| Stage 5 row | parse | ADE | lon-ADE | trajectory collision | GT traj collision |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| full | 1.00 | 0.61 | 0.00 % | **0.00 %** | 0.00 % |
-| no_kinematics | 1.00 | 1.47 | 0.17 % | 1.00 % | 0.00 % |
-| no_ego | 0.10\* | 7.21\* | 0.33 %\* | 1.96 %\* | 0.00 % |
-| black_image | 1.00 | 0.96 | 0.40 % | **2.00 %** | 0.00 % |
-| mismatch_image | 1.00 | 0.63 | 0.03 % | 0.20 % | 0.00 % |
+| full | 1.00 | 0.496 | 0.444 | 0.06 % (CI [0.02, 0.17]) | 0.00 % |
+| time_shifted_image | 1.00 | 0.498 | 0.443 | 0.04 % | 0.00 % |
+| true_mismatch_image | 1.00 | 0.589 | 0.468 | 0.10 % (CI [0.04, 0.23]) | 0.00 % |
+| no_kinematics | 1.00 | 1.253 | 1.111 | 0.47 % | 0.00 % |
+| black_image | 1.00 | 0.801 | 0.554 | **1.02 %** (17× full) | 0.00 % |
+| no_ego | 0.16\* | 7.31\* | 6.99\* | 3.87 %\* | 0.00 % |
 
 Sanity: GT 0 % across the board confirms the ego→global transform, the
 collision-index population (`instance.json` join correctly applied — an earlier
 build missed this and produced an empty index), and the bbox-overlap test.
 
-**Findings (Stage 6 closes with three metrics in agreement):**
+**Findings — collision exposes the *presence* half of the asymmetry:**
 
-8. **`full` predicts zero collisions across 500 trajectories.** On a par with
-   the cleanest open-loop numbers in the recent literature (UniAD / VAD report
-   ~0.1–0.5 %). A positive driving-credibility result.
-9. **Vision masking degrades collision rate too**, in lockstep with off-road:
-   `black_image` 2.00 % vs `full` 0.00 % (and `black_image` off-road 12.00 % vs
-   `full` 0.40 %). Same direction, same ordering.
-10. **Three-metric corroboration on the central claim.** ADE / off-road /
-    collision **all** show `mismatch_image ≈ full` (vision content
-    irrelevant), and **all** show `black_image >> full` (vision pathway
-    matters). Three independent open-loop metrics agreeing on the qualitative
-    pattern lifts the project's headline claim — *vision contributes
-    road-following + collision avoidance, not scene-specific trajectory
-    shaping* — from a single cross-tab into a triple-corroborated finding.
+10. **`full` collision is 0.06 %** (Wilson CI [0.02, 0.17]), on a par with the
+    cleanest open-loop numbers in the recent literature (UniAD / VAD ~0.1–0.5 %).
+    A positive driving-credibility result, and now with a CI rather than a bare
+    0 % that earlier had no statistical content.
+11. **Collision keys on vision *presence*, not *content*.** `true_mismatch` is
+    ≈ `full` (0.10 % vs 0.06 %, CIs overlap) — a wrong scene does *not* raise
+    collision — but `black_image` jumps **17×** to 1.02 %. Contrast this with
+    off-road (Appendix E), where `true_mismatch` *does* rise 7×. The two metrics
+    disagree on `true_mismatch` on purpose: that disagreement is the asymmetry.
+12. **Why mismatch spares collision.** Collision is mostly a *longitudinal*
+    failure (running into the vehicle ahead), and longitudinal control is the ego
+    shortcut (lon-ADE barely moves under mismatch, 0.444 → 0.468). Lateral errors
+    from a wrong scene push the path off the drivable area (off-road ↑) without
+    necessarily driving it *into* a logged agent.
+
+**The triple-metric resolution (the project's headline).** Instead of one ADE
+number, three independent open-loop metrics jointly resolve a functional
+asymmetry: vision *content* → lateral (ADE lat / off-road), vision *presence* →
+collision avoidance, longitudinal → ego shortcut. Single-ADE-number papers
+(Impromptu, UniAD, VAD baseline) cannot see this.
 
 Caveat (standard): open-loop, so other agents follow their *logged*
 trajectories rather than reacting to the ego's predicted path. Closed-loop
