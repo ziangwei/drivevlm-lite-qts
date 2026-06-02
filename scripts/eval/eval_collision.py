@@ -10,9 +10,13 @@ Per row of a predictions.jsonl:
 1. Look up the CAM_FRONT basename in the pose index → ego global pose at t=0.
 2. Look up the same basename in the collision index → future-keyframe agent
    bounding boxes for t = 0.5 s ... 3.0 s.
-3. Lift each predicted (and GT) waypoint into the global frame.
-4. At each future timestep i, test the waypoint against every agent's 2-D
-   rotated bbox; record a hit if any contains it.
+3. Lift each predicted (and GT) waypoint into the global frame and derive the
+   ego heading at each step from the path.
+4. At each future timestep i, place the oriented ego footprint (length×width,
+   nuScenes ego defaults) at the waypoint and test it for overlap against every
+   agent's 2-D rotated bbox (separating-axis theorem); record a hit if any
+   overlaps. Using the full ego rectangle (not just the centre point) matches
+   the ST-P3 / UniAD / VAD collision convention and avoids under-counting.
 
 Reports the standard open-loop collision rate per waypoint and per trajectory,
 for both prediction and GT. GT collision rate is reported as the sanity floor
@@ -28,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,8 +40,14 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from drivevlm_lite.data.jsonl import read_jsonl, write_jsonl
-from drivevlm_lite.eval.bbox import point_in_rotated_bbox, quick_radius_overlap
+from drivevlm_lite.eval.bbox import circumradius, rotated_boxes_overlap
 from drivevlm_lite.eval.geometry import ego_to_global_path, yaw_from_quaternion
+
+# nuScenes ego vehicle (Renault Zoe) footprint, metres. Matches the box size
+# used by the open-loop collision metric in ST-P3 / UniAD / VAD so our number
+# is comparable to theirs. Overridable via --ego-length / --ego-width.
+EGO_LENGTH_DEFAULT = 4.084
+EGO_WIDTH_DEFAULT = 1.85
 
 
 def _preflight(pose_index: Path, collision_index: Path) -> list[str]:
@@ -56,14 +67,39 @@ def _as_pairs(raw: Any) -> list[tuple[float, float]]:
     return [(float(p[0]), float(p[1])) for p in raw]
 
 
-def _waypoint_hits_any_agent(point, agents) -> bool:
-    px, py = point
+def _path_headings(path, origin, origin_yaw) -> list[float]:
+    """Per-waypoint ego heading from finite differences along the global path.
+
+    The ego box at waypoint i is oriented along the direction of travel into
+    that waypoint. A (near-)stationary step keeps the previous heading (the
+    car does not spin in place), seeded by the ego's yaw at t=0.
+    """
+    headings: list[float] = []
+    prev = origin
+    last_h = origin_yaw
+    for p in path:
+        dx, dy = p[0] - prev[0], p[1] - prev[1]
+        if dx * dx + dy * dy > 1e-6:
+            last_h = math.atan2(dy, dx)
+        headings.append(last_h)
+        prev = p
+    return headings
+
+
+def _ego_box_hits_any_agent(center, ego_yaw, ego_l, ego_w, agents) -> bool:
+    """True if the oriented ego footprint at ``center`` overlaps any agent box."""
+    px, py = center
+    ego_r = circumradius(ego_l, ego_w)
     for agent in agents:
         cx, cy = agent["x"], agent["y"]
         l, w = agent["l"], agent["w"]
-        if not quick_radius_overlap((px, py), (cx, cy), l, w):
+        reach = ego_r + circumradius(l, w)
+        dx, dy = px - cx, py - cy
+        if dx * dx + dy * dy > reach * reach:
             continue
-        if point_in_rotated_bbox((px, py), (cx, cy), l, w, agent["yaw"]):
+        if rotated_boxes_overlap(
+            (px, py), ego_l, ego_w, ego_yaw, (cx, cy), l, w, agent["yaw"]
+        ):
             return True
     return False
 
@@ -76,6 +112,10 @@ def main() -> None:
     parser.add_argument("--collision-index", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--limit", default=0, type=int)
+    parser.add_argument("--ego-length", default=EGO_LENGTH_DEFAULT, type=float,
+        help="Ego footprint length (m, along heading). nuScenes default 4.084.")
+    parser.add_argument("--ego-width", default=EGO_WIDTH_DEFAULT, type=float,
+        help="Ego footprint width (m). nuScenes default 1.85.")
     parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args()
 
@@ -130,6 +170,8 @@ def main() -> None:
 
         pred_global = ego_to_global_path(pred_pairs, (tx, ty), yaw)
         gt_global = ego_to_global_path(gt_pairs, (tx, ty), yaw)
+        pred_headings = _path_headings(pred_global, (tx, ty), yaw)
+        gt_headings = _path_headings(gt_global, (tx, ty), yaw)
         futures = col["future_samples"]
 
         pred_flags: list[bool] = []
@@ -137,8 +179,10 @@ def main() -> None:
         n_steps = min(len(pred_global), len(gt_global), len(futures))
         for i in range(n_steps):
             agents = futures[i]["agents"]
-            pred_flags.append(_waypoint_hits_any_agent(pred_global[i], agents))
-            gt_flags.append(_waypoint_hits_any_agent(gt_global[i], agents))
+            pred_flags.append(_ego_box_hits_any_agent(
+                pred_global[i], pred_headings[i], args.ego_length, args.ego_width, agents))
+            gt_flags.append(_ego_box_hits_any_agent(
+                gt_global[i], gt_headings[i], args.ego_length, args.ego_width, agents))
 
         pred_wp_hit += sum(pred_flags)
         pred_wp_total += len(pred_flags)
@@ -162,6 +206,9 @@ def main() -> None:
         "predictions": str(args.predictions),
         "pose_index": str(args.pose_index),
         "collision_index": str(args.collision_index),
+        "ego_length": args.ego_length,
+        "ego_width": args.ego_width,
+        "collision_mode": "ego_footprint_rect_overlap",
         "scored": scored,
         "unresolved": unresolved,
         "pred_collision_rate_waypoint": (pred_wp_hit / pred_wp_total) if pred_wp_total else None,

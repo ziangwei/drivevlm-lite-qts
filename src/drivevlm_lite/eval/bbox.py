@@ -66,3 +66,57 @@ def quick_radius_overlap(
     dy = float(point[1]) - float(center[1])
     r2 = (length * length + width * width) / 4.0
     return dx * dx + dy * dy <= r2
+
+
+def _box_corners(
+    center: Sequence[float], length: float, width: float, yaw: float
+) -> list[tuple[float, float]]:
+    """Four global-frame corners of a rotated rectangle (length along +x)."""
+    cx, cy = float(center[0]), float(center[1])
+    cos_y, sin_y = math.cos(yaw), math.sin(yaw)
+    hl, hw = length / 2.0, width / 2.0
+    local = ((hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw))
+    return [
+        (cx + lx * cos_y - ly * sin_y, cy + lx * sin_y + ly * cos_y)
+        for lx, ly in local
+    ]
+
+
+def _separated_on_axis(corners_a, corners_b, axis: tuple[float, float]) -> bool:
+    """True if the two corner sets do NOT overlap when projected onto ``axis``."""
+    ax, ay = axis
+    proj_a = [cx * ax + cy * ay for cx, cy in corners_a]
+    proj_b = [cx * ax + cy * ay for cx, cy in corners_b]
+    return max(proj_a) < min(proj_b) or max(proj_b) < min(proj_a)
+
+
+def circumradius(length: float, width: float) -> float:
+    """Radius of the circle circumscribing a length×width rectangle."""
+    return 0.5 * math.hypot(length, width)
+
+
+def rotated_boxes_overlap(
+    center_a: Sequence[float], length_a: float, width_a: float, yaw_a: float,
+    center_b: Sequence[float], length_b: float, width_b: float, yaw_b: float,
+) -> bool:
+    """True if two oriented 2-D rectangles overlap (separating-axis theorem).
+
+    Used for the open-loop collision metric: instead of testing whether a
+    predicted ego *point* falls inside an agent box (which ignores the ego's
+    own ~4 m footprint and badly under-counts), we sweep the full ego
+    rectangle against each agent rectangle. Two convex polygons are disjoint
+    iff there is a separating axis among their edge normals; for rectangles
+    that is the four box-axis directions.
+    """
+    corners_a = _box_corners(center_a, length_a, width_a, yaw_a)
+    corners_b = _box_corners(center_b, length_b, width_b, yaw_b)
+    axes = (
+        (math.cos(yaw_a), math.sin(yaw_a)),
+        (-math.sin(yaw_a), math.cos(yaw_a)),
+        (math.cos(yaw_b), math.sin(yaw_b)),
+        (-math.sin(yaw_b), math.cos(yaw_b)),
+    )
+    for axis in axes:
+        if _separated_on_axis(corners_a, corners_b, axis):
+            return False
+    return True

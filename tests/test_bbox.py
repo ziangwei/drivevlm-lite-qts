@@ -13,7 +13,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from drivevlm_lite.eval.bbox import point_in_rotated_bbox, quick_radius_overlap
+from drivevlm_lite.eval.bbox import (
+    circumradius,
+    point_in_rotated_bbox,
+    quick_radius_overlap,
+    rotated_boxes_overlap,
+)
 
 
 # Convention reminder: length = local +x (heading), width = local +y, yaw = box-x in global.
@@ -67,6 +72,36 @@ def test_quick_radius_early_out() -> None:
     assert quick_radius_overlap((1.0, 0.5), (0.0, 0.0), 4.0, 2.0)
 
 
+def test_boxes_overlap_concentric() -> None:
+    # Two boxes sharing a centre always overlap.
+    assert rotated_boxes_overlap((0.0, 0.0), 4.0, 2.0, 0.0, (0.0, 0.0), 4.0, 2.0, 0.0)
+
+
+def test_boxes_overlap_touching_edge() -> None:
+    # Ego 4x2 at origin (spans x in [-2,2]); agent 4x2 centred at (3.9,0)
+    # spans x in [1.9,5.9] → overlap in [1.9,2].
+    assert rotated_boxes_overlap((0.0, 0.0), 4.0, 2.0, 0.0, (3.9, 0.0), 4.0, 2.0, 0.0)
+
+
+def test_boxes_disjoint_along_length() -> None:
+    # Same two 4x2 boxes pulled apart to 4.1 m centre distance → gap, no overlap.
+    assert not rotated_boxes_overlap((0.0, 0.0), 4.0, 2.0, 0.0, (4.1, 0.0), 4.0, 2.0, 0.0)
+
+
+def test_boxes_size_matters_point_would_miss() -> None:
+    # The motivating case: an agent box whose CENTRE the ego point misses, but
+    # whose extent the ego FOOTPRINT clips. Ego centre (0,0), heading +x, 4x2.
+    # Agent 2x2 centred at (2.5, 1.4): the ego point (0,0) is far from it, and
+    # the ego centre is not inside the agent box, yet the boxes overlap.
+    agent_c = (2.5, 1.4)
+    assert not point_in_rotated_bbox((0.0, 0.0), agent_c, 2.0, 2.0, 0.0)
+    assert rotated_boxes_overlap((0.0, 0.0), 4.0, 2.0, 0.0, agent_c, 2.0, 2.0, 0.0)
+
+
+def test_circumradius() -> None:
+    assert abs(circumradius(4.0, 2.0) - (0.5 * math.hypot(4.0, 2.0))) < 1e-9
+
+
 def _run_all_tests() -> int:
     fns = [
         test_axis_aligned_inside,
@@ -76,6 +111,11 @@ def _run_all_tests() -> int:
         test_rotated_90_degrees_swaps_axes,
         test_rotated_45_degrees,
         test_quick_radius_early_out,
+        test_boxes_overlap_concentric,
+        test_boxes_overlap_touching_edge,
+        test_boxes_disjoint_along_length,
+        test_boxes_size_matters_point_would_miss,
+        test_circumradius,
     ]
     failures = 0
     for fn in fns:
