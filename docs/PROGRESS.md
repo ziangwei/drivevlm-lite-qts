@@ -424,20 +424,25 @@ PREDICTIONS=reports/ablation_matrix_v1_full/full/predictions.jsonl \
 ```
 
 Output: `reports/collision_v1_full/<row>/{collision_metrics.json,collision_per_sample.jsonl}`.
-GT collision rate (sanity floor) should be very close to 0 % — by construction
-the logged ego trajectory does not collide with logged other-agent trajectories
-beyond annotation noise.
+The collision **definition is fragile** and we report both ends (2026-05-31):
+a *point* test (ego centre in agent box) under-counts because it ignores the
+~4 m ego body; the standard *ego-footprint* rect-overlap (4.084 × 1.85 m, SAT)
+over-counts because zero-tolerance box-touching in dense traffic flags even the
+GT trajectory at a **1.86 % floor**. Because ablations corrupt only the model
+input, that GT floor is identical across the comparable rows, so we read
+collision as **excess over GT (pred − GT)**.
 
-**Results (5 119 of full val, 2026-05-31)** — trajectory collision: full 0.06 %
-(Wilson 95 % CI [0.02, 0.17]) / time_shifted 0.04 % / true_mismatch 0.10 %
-(CI [0.04, 0.23]) / no_kinematics 0.47 % / **black_image 1.02 %** (17× full) /
-no_ego 3.87 %\*; GT 0 % everywhere. **Key reading**: collision is the metric
-that separates the *other* half of the asymmetry — it is ≈ full under
-`true_mismatch` (0.10 % vs 0.06 %, CIs overlap) but jumps **17×** under
-`black_image`. So collision avoidance keys on vision *presence* ("I see *some*
-image"), not vision *content*; mismatch leaves it intact because collision is
-mostly longitudinal and longitudinal is the ego shortcut. Full table in
-`docs/JOURNEY.md` Appendix G.
+**Results (5 119 of full val, footprint mode)** — pred / GT-floor / excess:
+full 2.32 / 1.86 / **+0.47** · time_shifted 2.54 / 1.86 / +0.68 · true_mismatch
+2.56 / 1.86 / +0.70 · no_kinematics 4.49 / 1.86 / +2.64 · **black_image 6.09 /
+1.86 / +4.24** · no_ego 8.86\* (scored 801, parse collapsed, non-comparable).
+Point-test reference (under-count): full 0.06 %, GT 0 %. **Key reading**:
+collision keys on vision *presence* — `true_mismatch` excess (+0.70) ≈ full
+(+0.47), but `black_image` excess is **~9× full's** (point test agreed: 17×). So
+avoidance triggers on seeing *some* image, not the *correct* one; mismatch
+leaves it intact because collision is mostly longitudinal = ego shortcut. The
+absolute number's fragility motivates a closed-loop metric (NAVSIM PDMS) for any
+follow-on. Full table in `docs/JOURNEY.md` Appendix G.
 
 **Done when**: pred + GT collision rate reported, matched against the off-road
 table, and added to the results. **DONE.**

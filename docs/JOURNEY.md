@@ -269,10 +269,10 @@ Findings:
    (`true_mismatch`) raises ADE only +0.093 m but **doubles lat-ADE**
    (0.127 → 0.231) — and off-road rate rises 7× (Appendix E). The lateral
    channel reads *this specific* scene's road geometry.
-3. **Vision *presence* → collision avoidance.** Collision rate is ≈ full under
-   `true_mismatch` (0.10 % vs 0.06 %, CIs overlap, Appendix G) but jumps **17×**
-   under `black_image`. The "is there something in front of me" instinct triggers
-   on seeing *some* image, not the *correct* one.
+3. **Vision *presence* → collision avoidance.** Collision excess-over-GT is ≈ full
+   under `true_mismatch` (+0.70 vs +0.47 pp, Appendix G) but ~**9×** `full`'s
+   excess under `black_image`. The "is there something in front of me" instinct
+   triggers on seeing *some* image, not the *correct* one.
 4. **Longitudinal control = ego-status shortcut.** lon-ADE barely moves under any
    image corruption (0.444 → 0.468 under mismatch, → 0.554 under black). Dropping
    velocity / accel / steering (`no_kinematics`) is what doubles ADE (→ 1.253)
@@ -354,7 +354,7 @@ story, and it is an **asymmetry**, not a single shortcut:
 - Vision *content* drives the lateral channel: `true_mismatch` doubles lat-ADE
   and raises off-road 7×, while `time_shifted` does not.
 - Vision *presence* drives collision avoidance: `black_image` raises collision
-  17× while `true_mismatch` leaves it ≈ full (Appendix G).
+  excess ~9× while `true_mismatch` leaves it ≈ full (Appendix G).
 - Three independent open-loop metrics resolving the asymmetry — instead of one
   ADE number hiding it — is the methodology contribution this project adds on
   top of the Impromptu replication.
@@ -382,40 +382,55 @@ training-average trajectory. The literature's ego-only MLP reference
 (~0.35 m on nuScenes) sits below our `train_mean` because that MLP has access to
 the *current* ego state at inference; our train-mean prior intentionally does not.
 
-## Appendix G — Open-loop collision rate (Stage 6 closing, 2026-05-27)
+## Appendix G — Open-loop collision rate (Stage 6 closing; collision definition revisited 2026-05-31)
 
 Open-loop collision rate computed by transforming predicted (and GT)
-waypoints into the global frame (using the same pose index as Stage 6) and
-testing each future-timestep position against the 2-D rotated bounding boxes
-of every other agent in safety-relevant categories (vehicle.* + human.*)
-sourced from `sample_annotation.json`. GT collision rate is the sanity floor
-(should be near zero). 5 119-of-val matrix, 2026-05-31; Wilson 95 % CIs on the
-low-rate cells.
+waypoints into the global frame (same pose index as Stage 6) and testing the
+ego against every other agent in safety-relevant categories (vehicle.* +
+human.*) from `sample_annotation.json`. 5 119-of-val matrix.
 
-| Stage 5 row | parse | ADE | lon-ADE | trajectory collision | GT traj collision |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| full | 1.00 | 0.496 | 0.444 | 0.06 % (CI [0.02, 0.17]) | 0.00 % |
-| time_shifted_image | 1.00 | 0.498 | 0.443 | 0.04 % | 0.00 % |
-| true_mismatch_image | 1.00 | 0.589 | 0.468 | 0.10 % (CI [0.04, 0.23]) | 0.00 % |
-| no_kinematics | 1.00 | 1.253 | 1.111 | 0.47 % | 0.00 % |
-| black_image | 1.00 | 0.801 | 0.554 | **1.02 %** (17× full) | 0.00 % |
-| no_ego | 0.16\* | 7.31\* | 6.99\* | 3.87 %\* | 0.00 % |
+**The collision definition is fragile, and we report both ends of it.** We first
+used a *point* test (is the predicted ego centre inside an agent box?). That
+ignores the ego's ~4 m footprint and **under-counts**: it gave `full` 0.06 %
+with a GT floor of 0.00 %. We then switched to the standard ST-P3 / UniAD / VAD
+convention — sweep the **oriented ego footprint** (4.084 × 1.85 m, heading from
+the path) against agent boxes via the separating-axis test
+(`bbox.rotated_boxes_overlap`). That **over-counts**: zero-tolerance rectangle
+overlap at 0.5 s resolution flags box-touching in dense traffic (tail-gating,
+adjacent lanes) as a "collision", so even the **GT trajectory shows a 1.86 %
+floor**. The two definitions bracket the truth; neither absolute is clean, so
+**we read collision as the excess over the GT floor (pred − GT)**. Because the
+ablations corrupt only the model input, the GT trajectory — and hence the
+1.86 % floor — is *identical* across the five comparable rows, which makes
+pred − GT a clean within-row signal.
 
-Sanity: GT 0 % across the board confirms the ego→global transform, the
-collision-index population (`instance.json` join correctly applied — an earlier
-build missed this and produced an empty index), and the bbox-overlap test.
+Footprint results (`collision_mode = ego_footprint_rect_overlap`, ego 4.084 × 1.85):
+
+| Stage 5 row | ADE | pred traj collision | GT floor | **excess (pred − GT)** |
+| --- | ---: | ---: | ---: | ---: |
+| full | 0.496 | 2.32 % | 1.86 % | **+0.47** |
+| time_shifted_image | 0.498 | 2.54 % | 1.86 % | +0.68 |
+| true_mismatch_image | 0.589 | 2.56 % | 1.86 % | +0.70 |
+| no_kinematics | 1.253 | 4.49 % | 1.86 % | +2.64 |
+| black_image | 0.801 | 6.09 % | 1.86 % | **+4.24** |
+| no_ego\* | 7.31 | 8.86 % | 0.37 % | — (scored 801 only; parse collapsed) |
+
+\* `no_ego` parse collapse leaves only ~800 scored rows (a different, smaller
+set with its own 0.37 % floor) — non-comparable, kept for completeness.
 
 **Findings — collision exposes the *presence* half of the asymmetry:**
 
-10. **`full` collision is 0.06 %** (Wilson CI [0.02, 0.17]), on a par with the
-    cleanest open-loop numbers in the recent literature (UniAD / VAD ~0.1–0.5 %).
-    A positive driving-credibility result, and now with a CI rather than a bare
-    0 % that earlier had no statistical content.
-11. **Collision keys on vision *presence*, not *content*.** `true_mismatch` is
-    ≈ `full` (0.10 % vs 0.06 %, CIs overlap) — a wrong scene does *not* raise
-    collision — but `black_image` jumps **17×** to 1.02 %. Contrast this with
-    off-road (Appendix E), where `true_mismatch` *does* rise 7×. The two metrics
-    disagree on `true_mismatch` on purpose: that disagreement is the asymmetry.
+10. **Absolute open-loop collision is definition-fragile** (point under-counts to
+    0.06 %, footprint over-counts to 2.32 % over a 1.86 % GT floor), so we do
+    **not** claim parity with UniAD / VAD published numbers. What is robust is the
+    within-ablation contrast, read as excess over the constant GT floor.
+11. **Collision keys on vision *presence*, not *content*.** `true_mismatch` excess
+    (+0.70) ≈ `full` excess (+0.47) — a wrong scene barely raises collision — but
+    `black_image` excess (+4.24) is **~9× `full`'s**. Contrast this with off-road
+    (Appendix E), where `true_mismatch` *does* rise 7×. The two metrics disagree
+    on `true_mismatch` on purpose: that disagreement is the asymmetry. (Both
+    collision definitions agree on the pattern — point gave black ≈ 17× full;
+    footprint gives ≈ 9× excess.)
 12. **Why mismatch spares collision.** Collision is mostly a *longitudinal*
     failure (running into the vehicle ahead), and longitudinal control is the ego
     shortcut (lon-ADE barely moves under mismatch, 0.444 → 0.468). Lateral errors
@@ -428,9 +443,11 @@ asymmetry: vision *content* → lateral (ADE lat / off-road), vision *presence* 
 collision avoidance, longitudinal → ego shortcut. Single-ADE-number papers
 (Impromptu, UniAD, VAD baseline) cannot see this.
 
-Caveat (standard): open-loop, so other agents follow their *logged*
-trajectories rather than reacting to the ego's predicted path. Closed-loop
-collision rate is out of v1 scope.
+Caveat (standard): open-loop, so other agents follow their *logged* trajectories
+rather than reacting to the ego's predicted path. The collision metric's own
+fragility (under-count vs over-count, plus a 1.86 % GT floor) is a concrete
+argument that the *absolute* safety question needs a **closed-loop-relevant
+metric** (e.g. NAVSIM PDMS), which is out of v1 scope — see Appendix D.
 
 ## Appendix D — Candidate future directions (post-v1)
 

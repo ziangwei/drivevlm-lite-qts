@@ -23,7 +23,7 @@ Reference points (not directly reproduced here):
 - EMMA+: 0.29 m
 - Ego-MLP (no vision, ego status only): 0.35 m — illustrates how much of nuScenes open-loop ADE comes from ego-status fitting rather than vision
 
-**Headline finding (the methodology layer, not the ADE).** A six-row at-inference ablation crossed with off-road and open-loop collision rates resolves a **functional asymmetry** in the vision pathway: vision *content* drives the lateral / lane-keeping channel (a cross-scene image doubles lateral ADE and raises off-road 7×), vision *presence* drives collision avoidance (blacking the image raises collision 17×, while a wrong scene leaves it unchanged), and longitudinal control is an ego-status shortcut (longitudinal ADE barely moves under any image corruption). A single ADE number hides all three. See `docs/JOURNEY.md` Appendices B / E / G.
+**Headline finding (the methodology layer, not the ADE).** A six-row at-inference ablation crossed with off-road and open-loop collision rates resolves a **functional asymmetry** in the vision pathway: vision *content* drives the lateral / lane-keeping channel (a cross-scene image doubles lateral ADE and raises off-road 7×), vision *presence* drives collision avoidance (blacking the image raises collision excess-over-GT ~9× — 17× under a stricter point test — while a wrong scene leaves it unchanged), and longitudinal control is an ego-status shortcut (longitudinal ADE barely moves under any image corruption). A single ADE number hides all three. See `docs/JOURNEY.md` Appendices B / E / G.
 
 ## Method Summary
 
